@@ -6,7 +6,8 @@
 #include "LcdDisplay.h"
 #include "ApServer.h"
 #include "Store.h"
-#include "WheatherService.h"
+#include "WeatherService.h"
+#include "DollarService.h"
 //==============================================================================
 
 #define _INIT "INIT"
@@ -15,18 +16,26 @@
 #define _FETCH_UPDATES "FETCH_UPDATES"
 #define _SHOW_INFO "SHOW_INFO"
 
+#define BUTTON_1_PIN 12
+#define BUTTON_2_PIN 13
+
 //==============================================================================
 LcdDisplay display = LcdDisplay();
 SimpleFSM machine = SimpleFSM();
 ApServer apServer;
 Store store = Store();
-WheatherService wheatherService = WheatherService();
+WeatherService weatherService = WeatherService();
+DollarService dollarService = DollarService();
 
-WheatherInfo WHEATHER_INFO;
+WeatherInfo WEATHER_INFO;
+DollarInfo DOLLAR_INFO;
 
 //==============================================================================
 
 int TRIES = 10;
+bool BUTTON_1_PRESSED = false;
+bool BUTTON_2_PRESSED = false;
+bool SHOW_DOLLAR = false;
 
 enum Triggers
 {
@@ -50,6 +59,8 @@ void initeState()
     WifiSettings wifiSettings = store.getWifiSettings();
     apServer.setSsid(wifiSettings.ssid);
     apServer.setPassword(wifiSettings.password);
+
+    Serial.println("Conectando a red guardada");
 
     machine.trigger(Triggers::WIFI_CONNECT);
   }
@@ -91,11 +102,8 @@ void onEnterConnectState()
 {
   TRIES = 12;
   WiFi.mode(WIFI_STA);
-  Serial.println("-----------");
-  Serial.print(apServer.getSsid());
-  Serial.println("-----------");
-
-  WiFi.begin("Fibertel WiFi856 2.4GHz", "0042070239");
+  Serial.println("Conectando a red: " + apServer.getSsid());
+  WiFi.begin(apServer.getSsid(), apServer.getPassword());
 }
 
 void connectState()
@@ -120,32 +128,90 @@ void connectState()
 
 #pragma end region
 
+#pragma region Fetch Updates State
+
 void onEnterFetchUpdateState()
 {
   display.print("Actualizando");
-  WHEATHER_INFO = wheatherService.getCurrent();
+  WEATHER_INFO = weatherService.getCurrent();
+  DOLLAR_INFO = dollarService.getCurrent();
 }
 
 void fetchUpdatesState()
 {
-  if (WHEATHER_INFO.success)
+  if (!WEATHER_INFO.success)
+  {
+    display.printWithSuspense("Actualizando");
+    WEATHER_INFO = weatherService.getCurrent();
+    sleep(1);
+  }
+
+  if (!DOLLAR_INFO.success)
+  {
+    display.printWithSuspense("Actualizando");
+    DOLLAR_INFO = dollarService.getCurrent();
+    sleep(1);
+  }
+
+  if (WEATHER_INFO.success && DOLLAR_INFO.success)
   {
     machine.trigger(Triggers::SHOW_INFO);
   }
+}
+#pragma endregion
+
+void onEnterShowInfoState()
+{
+  if (SHOW_DOLLAR)
+  {
+    display.printDollar(DOLLAR_INFO);
+  }
   else
   {
-    display.printWithSuspense("Actualizando");
-    WHEATHER_INFO = wheatherService.getCurrent();
-    sleep(1);
+    display.printweather(WEATHER_INFO);
   }
 }
 
 void showInfoState()
 {
-  String firstLine = "T:" + String(WHEATHER_INFO.temp) + " H:" + String(WHEATHER_INFO.hum);
-  String secondLine = String(WHEATHER_INFO.rain) + "% " + String(WHEATHER_INFO.status);
-  display.printMultiline(firstLine, secondLine);
+  if (digitalRead(BUTTON_1_PIN) == HIGH)
+  {
+
+    if (!BUTTON_1_PRESSED)
+    {
+      BUTTON_1_PRESSED = true;
+      SHOW_DOLLAR = !SHOW_DOLLAR;
+
+      if (SHOW_DOLLAR)
+      {
+        display.printDollar(DOLLAR_INFO);
+      }
+      else
+      {
+        display.printweather(WEATHER_INFO);
+      }
+    }
+  }
+  else
+  {
+    BUTTON_1_PRESSED = false;
+  }
+
+  if (digitalRead(BUTTON_2_PIN) == HIGH)
+  {
+
+    if (!BUTTON_2_PRESSED)
+    {
+      BUTTON_2_PRESSED = true;
+      machine.trigger(Triggers::FETCH_UPDATES);
+    }
+  }
+  else
+  {
+    BUTTON_2_PRESSED = false;
+  }
 }
+
 #pragma endregion
 //==============================================================================
 #pragma region States Transitions
@@ -155,7 +221,7 @@ State INIT_STATE = State(_INIT, initeState);
 State WIFI_DISCOVER_STATE = State(_WIFI_DISCOVER, onEnterwifiDiscoveryState, wifiDiscoveryState, onExitWifiDiscoveryState);
 State WIFI_CONNECT_STATE = State(_WIFI_CONNECT, onEnterConnectState, connectState);
 State FETCH_UPDATES_STATE = State(_FETCH_UPDATES, onEnterFetchUpdateState, fetchUpdatesState);
-State SHOW_INFO_STATE = State(_SHOW_INFO, showInfoState);
+State SHOW_INFO_STATE = State(_SHOW_INFO, onEnterShowInfoState, showInfoState);
 
 //==============================================================================
 
@@ -169,6 +235,8 @@ void log(String from, String to)
 Transition transitions[]{
     Transition(&INIT_STATE, &WIFI_DISCOVER_STATE, Triggers::WIFI_DISCOVER, []()
                { log("init", "wifi discover"); }),
+    Transition(&INIT_STATE, &WIFI_CONNECT_STATE, Triggers::WIFI_CONNECT, []()
+               { log("init", "connect"); }),
     Transition(&WIFI_DISCOVER_STATE, &WIFI_CONNECT_STATE, Triggers::WIFI_CONNECT, []()
                { log("wifi discover", "connect"); }),
     Transition(&WIFI_CONNECT_STATE, &FETCH_UPDATES_STATE, Triggers::FETCH_UPDATES, []()
@@ -185,6 +253,9 @@ void setup()
   Serial.begin(115200);
 
   display.init();
+
+  pinMode(BUTTON_1_PIN, INPUT);
+  pinMode(BUTTON_2_PIN, INPUT);
 
   int num_transitions = sizeof(transitions) / sizeof(Transition);
 

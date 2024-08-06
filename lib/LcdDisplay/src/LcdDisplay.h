@@ -2,6 +2,8 @@
 #define LcdDisplay_h
 #include <LiquidCrystal_I2C.h>
 #include <WString.h>
+#include "WeatherService.h"
+#include "DollarService.h"
 
 #define LCD_COLUMNS 16
 #define LCD_ROWS 2
@@ -16,6 +18,8 @@ public:
   void clear();
   void printWithSuspense(String line);
   void printMultiline(String firstLine, String secondLine);
+  void printweather(WeatherInfo weatherInfo);
+  void printDollar(DollarInfo dollarInfo);
 
 private:
   LiquidCrystal_I2C _display;

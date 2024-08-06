@@ -1,5 +1,5 @@
-#ifndef WheatherService_h
-#define WheatherService_h
+#ifndef WeatherService_h
+#define WeatherService_h
 
 #include "Arduino.h"
 #include "HttpClient.h"
@@ -7,9 +7,9 @@
 #define LAT -34.6131
 #define LONG -58.3772
 
-#define WHEATHER_ENDPOINT "https://api.open-meteo.com/v1/forecast"
+#define weather_ENDPOINT "https://api.open-meteo.com/v1/forecast"
 
-struct WheatherInfo
+struct WeatherInfo
 {
   float temp;
   float hum;
@@ -23,15 +23,15 @@ struct WheatherInfo
   };
 };
 
-class WheatherService
+class WeatherService
 {
 public:
-  WheatherService();
-  WheatherInfo getCurrent();
+  WeatherService();
+  WeatherInfo getCurrent();
 
 private:
   HttpClient *_client;
-  String parseWheatherCode(int code);
+  String parseWeatherCode(int code);
   const String query;
 };
 

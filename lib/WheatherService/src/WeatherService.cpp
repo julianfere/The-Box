@@ -1,13 +1,13 @@
-#include "WheatherService.h"
+#include "WeatherService.h"
 #include <ArduinoJson.h>
 
-WheatherService::WheatherService() : _client(new HttpClient(WHEATHER_ENDPOINT)), query("?latitude=-34.6131&longitude=-58.3772&current=temperature_2m,relative_humidity_2m,rain,weather_code&timezone=auto")
+WeatherService::WeatherService() : _client(new HttpClient(weather_ENDPOINT)), query("?latitude=-34.6131&longitude=-58.3772&current=temperature_2m,relative_humidity_2m,rain,weather_code&timezone=auto")
 {
 }
 
-WheatherInfo WheatherService::getCurrent()
+WeatherInfo WeatherService::getCurrent()
 {
-  WheatherInfo info;
+  WeatherInfo info;
   String response;
 
   bool success = _client->get(query, response);
@@ -26,7 +26,7 @@ WheatherInfo WheatherService::getCurrent()
     info.hum = doc["current"]["relative_humidity_2m"];
     info.temp = doc["current"]["temperature_2m"];
     info.rain = doc["current"]["rain"];
-    info.status = this->parseWheatherCode(doc["current"]["weather_code"]);
+    info.status = this->parseWeatherCode(doc["current"]["weather_code"]);
   }
   return info;
 }
@@ -45,7 +45,7 @@ WheatherInfo WheatherService::getCurrent()
 // 95 *	Thunderstorm: Slight or moderate
 // 96, 99 *	Thunderstorm with slight and heavy hail
 
-String WheatherService::parseWheatherCode(int code)
+String WeatherService::parseWeatherCode(int code)
 {
   String status = "";
 
