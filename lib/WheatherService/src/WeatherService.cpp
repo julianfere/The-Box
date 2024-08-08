@@ -1,7 +1,7 @@
 #include "WeatherService.h"
 #include <ArduinoJson.h>
 
-WeatherService::WeatherService() : _client(new HttpClient(weather_ENDPOINT)), query("?latitude=-34.6131&longitude=-58.3772&current=temperature_2m,relative_humidity_2m,rain,weather_code&timezone=auto")
+WeatherService::WeatherService() : _client(new HttpService(weather_ENDPOINT)), query("?latitude=-34.6131&longitude=-58.3772&current=temperature_2m,relative_humidity_2m,rain,weather_code&timezone=auto")
 {
 }
 

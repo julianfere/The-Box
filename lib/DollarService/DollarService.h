@@ -2,7 +2,7 @@
 #define DollarService_H
 
 #include "Arduino.h"
-#include "HttpClient.h"
+#include "HttpService.h"
 
 #define DOLLAR_ENDPOINT "https://api.bluelytics.com.ar/v2/latest"
 
@@ -25,7 +25,7 @@ public:
   DollarInfo getCurrent();
 
 private:
-  HttpClient *_client;
+  HttpService *_client;
 };
 
 #endif

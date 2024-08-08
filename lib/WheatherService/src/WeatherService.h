@@ -2,7 +2,7 @@
 #define WeatherService_h
 
 #include "Arduino.h"
-#include "HttpClient.h"
+#include "HttpService.h"
 
 #define LAT -34.6131
 #define LONG -58.3772
@@ -30,7 +30,7 @@ public:
   WeatherInfo getCurrent();
 
 private:
-  HttpClient *_client;
+  HttpService *_client;
   String parseWeatherCode(int code);
   const String query;
 };

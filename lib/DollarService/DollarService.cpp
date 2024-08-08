@@ -1,6 +1,6 @@
 #include "DollarService.h"
 
-DollarService::DollarService() : _client(new HttpClient(DOLLAR_ENDPOINT))
+DollarService::DollarService() : _client(new HttpService(DOLLAR_ENDPOINT))
 {
 }
 
