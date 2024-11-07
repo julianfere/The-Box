@@ -8,6 +8,7 @@
 #include "Store.h"
 #include "WeatherService.h"
 #include "DollarService.h"
+#include "AnalogHandler.h"
 //==============================================================================
 
 #define _INIT "INIT"
@@ -19,8 +20,13 @@
 #define BUTTON_1_PIN 12
 #define BUTTON_2_PIN 13
 
+const int xPin = 27;  // the VRX attach to
+const int yPin = 32;  // the VRY attach to
+const int swPin = 25; // the SW attach to
+
 //==============================================================================
 LcdDisplay display = LcdDisplay();
+AnalogHandler analogHandler = AnalogHandler(xPin, yPin, swPin);
 SimpleFSM machine = SimpleFSM();
 ApServer apServer;
 Store store = Store();
@@ -33,8 +39,6 @@ DollarInfo DOLLAR_INFO;
 //==============================================================================
 
 int TRIES = 10;
-bool BUTTON_1_PRESSED = false;
-bool BUTTON_2_PRESSED = false;
 bool SHOW_DOLLAR = false;
 
 enum Triggers
@@ -43,7 +47,8 @@ enum Triggers
   WIFI_DISCOVER = 2,
   WIFI_CONNECT = 3,
   FETCH_UPDATES = 4,
-  SHOW_INFO = 5
+  SHOW_INFO = 5,
+  MENU = 6
 };
 
 #pragma redion State Handlers
@@ -174,42 +179,35 @@ void onEnterShowInfoState()
 
 void showInfoState()
 {
-  if (digitalRead(BUTTON_1_PIN) == HIGH)
+  if (analogHandler.isPressed())
   {
+    machine.trigger(Triggers::FETCH_UPDATES);
+  }
 
-    if (!BUTTON_1_PRESSED)
+  // if (analogHandler.isUp())
+  // {
+  //   machine.trigger(Triggers::MENU);
+  // }
+
+  if (analogHandler.isDown() or analogHandler.isUp())
+  {
+    SHOW_DOLLAR = !SHOW_DOLLAR;
+
+    if (SHOW_DOLLAR)
     {
-      BUTTON_1_PRESSED = true;
-      SHOW_DOLLAR = !SHOW_DOLLAR;
-
-      if (SHOW_DOLLAR)
-      {
-        display.printDollar(DOLLAR_INFO);
-      }
-      else
-      {
-        display.printweather(WEATHER_INFO);
-      }
+      display.printDollar(DOLLAR_INFO);
+    }
+    else
+    {
+      display.printweather(WEATHER_INFO);
     }
   }
-  else
-  {
-    BUTTON_1_PRESSED = false;
-  }
 
-  if (digitalRead(BUTTON_2_PIN) == HIGH)
+  if (analogHandler.isPressed())
   {
-
-    if (!BUTTON_2_PRESSED)
-    {
-      BUTTON_2_PRESSED = true;
-      machine.trigger(Triggers::FETCH_UPDATES);
-    }
+    machine.trigger(Triggers::FETCH_UPDATES);
   }
-  else
-  {
-    BUTTON_2_PRESSED = false;
-  }
+  delay(200);
 }
 
 #pragma endregion
@@ -254,13 +252,12 @@ void setup()
 
   display.init();
 
-  pinMode(BUTTON_1_PIN, INPUT);
-  pinMode(BUTTON_2_PIN, INPUT);
-
   int num_transitions = sizeof(transitions) / sizeof(Transition);
 
   machine.add(transitions, num_transitions);
   machine.setInitialState(&INIT_STATE);
+
+  analogHandler.setup();
 
   Serial.println(machine.getDotDefinition()); // Imprime la definición del grafo en formato DOT para usar en graphviz
 }
@@ -269,29 +266,3 @@ void loop()
 {
   machine.run();
 }
-
-/*
-  Board: ESP32 Development Board
-  Component: Joystick Module
-*/
-
-// const int xPin = 27;  // the VRX attach to
-// const int yPin = 26;  // the VRY attach to
-// const int swPin = 25; // the SW attach to
-
-// void setup()
-// {
-//   pinMode(swPin, INPUT_PULLUP);
-//   Serial.begin(115200);
-// }
-
-// void loop()
-// {
-//   Serial.print("X: ");
-//   Serial.print(analogRead(xPin)); // print the value of VRX
-//   Serial.print("|Y: ");
-//   Serial.print(analogRead(yPin)); // print the value of VRX
-//   Serial.print("|Z: ");
-//   Serial.println(digitalRead(swPin)); // print the value of SW
-//   delay(50);
-// }
