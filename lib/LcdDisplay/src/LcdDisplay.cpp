@@ -82,6 +82,36 @@ byte BlueDollar[8] = {
     B10101,
     B11110};
 
+byte Check[] = {
+    B00000,
+    B00000,
+    B00001,
+    B00010,
+    B10100,
+    B01000,
+    B00000,
+    B00000};
+
+byte Cross[] = {
+    B00000,
+    B00000,
+    B10001,
+    B01010,
+    B00100,
+    B01010,
+    B10001,
+    B00000};
+
+byte ArrowLeft[] = {
+    B00000,
+    B00000,
+    B00100,
+    B00010,
+    B11111,
+    B00010,
+    B00100,
+    B00000};
+
 enum WeatherIcons
 {
   TERMOMETER = 0,
@@ -89,13 +119,9 @@ enum WeatherIcons
   RAIN_CLOUD = 2,
   CLOUD = 3,
   MIST = 4,
-  THUNDER = 5,
-  HUMIDITY = 6,
-};
-
-enum DollarIcons
-{
-  BLUE_DOLLAR = 7,
+  HUMIDITY = 5,
+  CHECK = 6,
+  ARROW_LEFT = 7,
 };
 
 LcdDisplay::LcdDisplay() : _display(LCD_I2C_ADDR, LCD_COLUMNS, LCD_ROWS)
@@ -117,9 +143,9 @@ void LcdDisplay::init()
   _display.createChar(2, RainCloud);
   _display.createChar(3, Cloud);
   _display.createChar(4, Mist);
-  _display.createChar(5, Thunder);
-  _display.createChar(6, Humidity);
-  _display.createChar(7, BlueDollar);
+  _display.createChar(5, Humidity);
+  _display.createChar(6, Check);
+  _display.createChar(7, ArrowLeft);
 }
 
 void LcdDisplay::printWithSuspense(String line)
@@ -191,7 +217,7 @@ void LcdDisplay::printweather(WeatherInfo info)
   }
   else if (info.status == "Tormenta")
   {
-    _display.write((byte)WeatherIcons::THUNDER);
+    _display.write((byte)WeatherIcons::RAIN_CLOUD);
   }
   _display.print(info.status);
 }
@@ -202,6 +228,6 @@ void LcdDisplay::printDollar(DollarInfo info)
   _display.setCursor(0, 0);
   _display.print("$ " + String(info.oficial));
   _display.setCursor(0, 1);
-  _display.write((byte)DollarIcons::BLUE_DOLLAR);
+  _display.write('B');
   _display.print(" " + String(info.blue));
 }
