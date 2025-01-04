@@ -47,6 +47,8 @@ void ApServer::setupAp()
 {
   WiFi.softAP(AP_SSID, AP_PASSWORD);
   IPAddress IP = WiFi.softAPIP();
+  Serial.print("AP IP address: ");
+  Serial.println(IP);
 }
 
 void ApServer::scanNetworks()

@@ -1,4 +1,3 @@
-#include <Arduino.h>
 #include "AnalogHandler.h"
 
 AnalogHandler::AnalogHandler(int xPin, int yPin, int swPin)
@@ -35,5 +34,41 @@ bool AnalogHandler::isRight()
 
 bool AnalogHandler::isPressed()
 {
+  // Si ya se manejó una doble pulsación, no activar `isPressed`
+  if (_doublePressHandled)
+  {
+    _doublePressHandled = false; // Reinicia para futuras llamadas
+    return false;
+  }
   return digitalRead(this->_swPin) == LOW;
+}
+
+bool AnalogHandler::isDoublePressed()
+{
+  bool buttonState = isPressed(); // Usa la lógica de `isPressed`
+  unsigned long currentTime = millis();
+
+  if (buttonState && currentTime - _debounceTime > 50)
+  {
+    _debounceTime = currentTime;
+
+    if (_waitingForSecondPress && currentTime - _lastPressTime <= _doublePressInterval)
+    {
+      _waitingForSecondPress = false;
+      _doublePressHandled = true; // Marca que se manejó doble pulsación
+      return true;
+    }
+    else
+    {
+      _lastPressTime = currentTime;
+      _waitingForSecondPress = true;
+    }
+  }
+
+  if (_waitingForSecondPress && currentTime - _lastPressTime > _doublePressInterval)
+  {
+    _waitingForSecondPress = false;
+  }
+
+  return false;
 }
