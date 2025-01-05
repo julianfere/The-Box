@@ -175,12 +175,20 @@ void drawWifiConnectionProgress()
   tft.println("Esperando...");
 }
 
-void drawDolarPage()
+void drawDolarPage(bool loading = false)
 {
   tft.fillScreen(TFT_BLACK);
   drawHeader("Dolar");
   // Título centrado y pequeño
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
+
+  if (loading)
+  {
+    tft.setTextFont(2);
+    tft.setCursor(20, 80);
+    tft.println("Cargando...");
+    return;
+  }
 
   // Sección Dólar Blue y Oficial
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
@@ -191,10 +199,19 @@ void drawDolarPage()
   tft.println("Oficial: " + String(DOLLAR_INFO.oficial));
 }
 
-void drawWeatherPage()
+void drawWeatherPage(bool loading = false)
 {
   tft.fillScreen(TFT_BLACK);
   drawHeader("Clima");
+
+  if (loading)
+  {
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setTextFont(2);
+    tft.setCursor(20, 80);
+    tft.println("Cargando...");
+    return;
+  }
 
   // Título centrado
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
@@ -395,6 +412,7 @@ int lastDollarFetch = 0;
 
 void onEnterDolarState()
 {
+  drawDolarPage(true);
   DOLLAR_INFO = dollarService.getCurrent();
   drawDolarPage();
 }
@@ -423,6 +441,7 @@ int lastWeatherFetch = 0;
 
 void onEnterWeatherState()
 {
+  drawWeatherPage(true);
   WEATHER_INFO = weatherService.getCurrent();
   drawWeatherPage();
 }
