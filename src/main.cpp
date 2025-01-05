@@ -36,8 +36,9 @@ SimpleFSM machine = SimpleFSM();
 ApServer apServer;
 Store store = Store();
 WeatherService weatherService = WeatherService();
+WiFiUDP ntpUDP;
 DollarService dollarService = DollarService();
-
+NTPClient timeClient(ntpUDP, "pool.ntp.org", -3 * 3600, 60000);
 WeatherInfo WEATHER_INFO;
 DollarInfo DOLLAR_INFO;
 
@@ -73,95 +74,146 @@ const char *menuOptions[numOptions] = {
 int selectedOption = 0;
 int newOption = 0;
 
+#define COLOR_BLUE tft.color565(0, 0, 255)
+#define COLOR_BLACK tft.color565(0, 0, 0)
+#define COLOR_CYAN tft.color565(0, 255, 255)
+#define COLOR_LIGHT_BLUE tft.color565(173, 216, 230)
+#define COLOR_YELLOW tft.color565(255, 255, 0)
+#define COLOR_WHITE tft.color565(255, 255, 255)
+
+void drawHeader(const char *title)
+{
+  // Title "Menu" (larger size than options)
+  tft.setTextColor(COLOR_BLUE);
+  tft.setTextSize(2);  // Increase size of title
+  tft.setCursor(0, 0); // Center title horizontally
+  tft.print(title);
+
+  // Draw lines (adjusted for spacing with the title)
+  tft.drawLine(0, 40, 250, 40, COLOR_BLUE);   // Horizontal line
+  tft.drawLine(210, 0, 210, 40, COLOR_BLUE);  // Vertical line
+  tft.drawLine(250, 40, 320, 40, COLOR_BLUE); // Horizontal line
+
+  // Custom label "TheBox" (larger size than options)
+  tft.setCursor(220, 0);
+  tft.setTextColor(tft.color565(255, 102, 67)); // Custom color for "TheBox"
+  tft.print("TheBox");
+  tft.setTextColor(COLOR_WHITE); // Custom color for "TheBox"
+}
+
 void drawMenu()
 {
-  int verticalSpacing = tft.fontHeight() + 5;
-  tft.fillScreen(TFT_BLACK);
+  int verticalSpacing = tft.fontHeight() + 4; // Vertical spacing between options, increased for readability
+  tft.fillScreen(COLOR_BLACK);                // Clear screen with black background
+
+  drawHeader("Menu");
+  tft.setTextColor(COLOR_WHITE); // Custom color for "TheBox"
+
+  int yOffset = 60; // Initial vertical position for options (below the title)
+
+  // Draw menu options with selection effect
   for (int i = 0; i < numOptions; i++)
   {
     if (i == selectedOption)
     {
-      tft.setTextColor(TFT_BLACK, TFT_WHITE); // Texto invertido
+      // Highlight selected option with yellow background (full width)
+      tft.drawRect(0, yOffset - 2, tft.width(), verticalSpacing, COLOR_CYAN);
     }
-    else
-    {
-      tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    }
-    tft.setCursor(10, i * verticalSpacing + 10);
-    tft.println(menuOptions[i]);
+
+    // Position each option centered horizontally
+    tft.setCursor((tft.width() - tft.textWidth(menuOptions[i])) / 2, yOffset);
+    tft.setTextFont(2); // Use a larger font for options
+    tft.print(menuOptions[i]);
+    yOffset += verticalSpacing; // Move down for the next option
   }
 }
 
 void drawInitPage()
 {
+  drawHeader("");
   tft.fillScreen(TFT_BLACK);
-  tft.setCursor(10, 10);
-  tft.println("Inicializando...");
+
+  // Título centrado
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextFont(2); // Fuente pequeña y moderna
+  tft.setTextDatum(TC_DATUM);
+  tft.drawString("Inicializando...", tft.width() / 2, tft.height() / 2);
 }
 
 void drawWifiDiscoveryPage()
 {
   tft.fillScreen(TFT_BLACK);
-  tft.setCursor(10, 10);
-  tft.println("Buscando redes disponibles");
-}
+  drawHeader("WiFi");
 
-int spinnerRadius = 40; // Radio del spinner
-int arcThickness = 10;  // Grosor del arco
-int spinnerSpeed = 10;  // Velocidad de giro (en milisegundos)
-int spinnerAngle = 0;   // Ángulo inicial del spinner
+  // Título centrado
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextFont(2);
+  tft.setTextDatum(TC_DATUM);
+  tft.drawString("Buscando Redes", tft.width() / 2, tft.height() / 2 - 10);
 
-void drawSpinner()
-{
-  int centerX = tft.width() / 2;
-  int centerY = tft.height() / 2;
-
-  // Borra el fondo del spinner (opcional)
-  tft.fillCircle(centerX, centerY, spinnerRadius + arcThickness, TFT_BLACK);
-
-  // Dibuja un arco para el spinner
-  for (int i = 0; i < 360; i += 45)
-  { // Dibuja segmentos cada 45 grados
-    int startAngle = spinnerAngle + i;
-    int endAngle = startAngle + 30; // Longitud del arco
-
-    uint16_t color = (i == 0) ? TFT_WHITE : TFT_DARKGREY; // Segmento destacado
-
-    tft.drawArc(centerX, centerY, spinnerRadius, arcThickness, startAngle, endAngle, TFT_WHITE, TFT_DARKGREY, true);
-  }
+  // Texto pequeño para la descripción
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextFont(1);
+  tft.setCursor(30, tft.height() / 2 + 20);
+  tft.println("Escaneando redes...");
 }
 
 void drawWifiConnectionProgress()
 {
-  drawSpinner();
-  spinnerAngle += 15;
+  tft.fillScreen(TFT_BLACK);
+  drawHeader("WiFi");
+  // Título centrado y simple
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextFont(2);
+  tft.setTextDatum(TC_DATUM);
+  tft.drawString("Conectando WiFi", tft.width() / 2, 30);
 
-  if (spinnerAngle >= 360)
-  {
-    spinnerAngle = 0;
-  }
+  // Progreso sencillo, no sobrecargar
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextFont(1);
+  tft.setCursor(30, tft.height() / 2);
+  tft.println("Esperando...");
 }
 
 void drawDolarPage()
 {
   tft.fillScreen(TFT_BLACK);
-  tft.setCursor(10, 10);
-  tft.println("Dolar Blue: " + String(DOLLAR_INFO.blue));
-  tft.setCursor(10, 40);
-  tft.println("Dolar Oficial: " + String(DOLLAR_INFO.oficial));
+  drawHeader("Dolar");
+  // Título centrado y pequeño
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+
+  // Sección Dólar Blue y Oficial
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setCursor(20, 80);
+  tft.println("Blue: " + String(DOLLAR_INFO.blue));
+
+  tft.setCursor(20, 110);
+  tft.println("Oficial: " + String(DOLLAR_INFO.oficial));
 }
 
 void drawWeatherPage()
 {
   tft.fillScreen(TFT_BLACK);
-  tft.setCursor(10, 10);
-  tft.println("Clima: " + WEATHER_INFO.status);
-  tft.setCursor(10, 40);
-  tft.println("Temperatura: " + String(WEATHER_INFO.temp));
-  tft.setCursor(10, 70);
-  tft.println("Humedad: " + String(WEATHER_INFO.hum));
-  tft.setCursor(10, 100);
-  tft.println("Lluvia: " + String(WEATHER_INFO.rain));
+  drawHeader("Clima");
+
+  // Título centrado
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextFont(4);
+
+  // Datos del clima con poco texto y espacio
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextFont(2);
+  tft.setCursor(20, 80);
+  tft.println("Cielo: " + WEATHER_INFO.status);
+
+  tft.setCursor(20, 110);
+  tft.println("Temp: " + String(WEATHER_INFO.temp) + "°C");
+
+  tft.setCursor(20, 140);
+  tft.println("Humedad: " + String(WEATHER_INFO.hum) + "%");
+
+  tft.setCursor(20, 170);
+  tft.println("Lluvia: " + String(WEATHER_INFO.rain) + "%");
 }
 
 #pragma endregion
@@ -249,7 +301,7 @@ void connectState()
   bool isConnected = false;
 
   BaseType_t res = xQueueReceive(WIFI_STATUS_QUEUE, &isConnected, 0);
-  Serial.println("Conectado: " + String(isConnected));
+  drawWifiConnectionProgress();
 
   if (res == pdTRUE)
   {
@@ -262,11 +314,10 @@ void connectState()
     }
   }
 
-  drawWifiConnectionProgress();
-
   if (!isConnected)
   {
     machine.trigger(Triggers::WIFI_DISCOVER);
+    tft.fillScreen(TFT_BLACK);
   }
 }
 
@@ -276,13 +327,13 @@ void connectState()
 
 void onEnterMenuState()
 {
-  delay(100);
+  tft.fillScreen(TFT_BLACK);
+  tft.fillScreen(TFT_BLACK);
   drawMenu();
 }
 
 void menuState()
 {
-
   if (analogHandler.isDown())
   {
     if (newOption == numOptions - 1)
@@ -480,101 +531,77 @@ void onExitScreenSacverState()
 
 uint32_t targetTime = 0; // for next 1 second timeout
 
-static uint8_t conv2d(const char *p); // Forward declaration needed for IDE 1.6.x
-
-uint8_t hh = conv2d(__TIME__), mm = conv2d(__TIME__ + 3), ss = conv2d(__TIME__ + 6); // Get H, M, S from compile time
-
 #define TFT_GREY 0x5AEB
 
 byte omm = 99, oss = 99;
 byte xcolon = 0, xsecs = 0;
 unsigned int colour = 0;
 
-static uint8_t conv2d(const char *p)
-{
-  uint8_t v = 0;
-  if ('0' <= *p && *p <= '9')
-    v = *p - '0';
-  return 10 * v + *++p - '0';
-}
-
 void onEnterClockState()
 {
   tft.setTextSize(1);
 }
 
+void drawClockFace(int x, int y)
+{
+  tft.fillCircle(x, y, 110, TFT_DARKGREY); // Fondo del reloj
+  tft.fillCircle(x, y, 100, TFT_BLACK);    // Borde interno
+  tft.drawCircle(x, y, 110, TFT_WHITE);    // Borde externo
+}
+
+// Dibuja la hora y minutos
+void drawTime(int x, int y, int hh, int mm)
+{
+  char timeBuffer[6]; // Formato HH:MM
+  int xpos = x - 5;
+  sprintf(timeBuffer, "%02d:%02d", hh, mm);
+
+  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+  tft.setTextDatum(MC_DATUM);             // Centra el texto
+  tft.drawString(timeBuffer, xpos, y, 7); // Fuente 7 para hora
+}
+
+// Dibuja los segundos
+void drawSeconds(int x, int y, int ss)
+{
+  char secondsBuffer[3]; // Formato SS
+  sprintf(secondsBuffer, "%02d", ss);
+
+  tft.setTextColor(TFT_CYAN, TFT_BLACK);
+  tft.setTextDatum(MC_DATUM);             // Centra el texto
+  tft.drawString(secondsBuffer, x, y, 2); // Fuente 4 para segundos
+}
+
 void clockState()
 {
+  timeClient.update();
+
+  // Obtén la hora actual
+  int hh = timeClient.getHours();
+  int mm = timeClient.getMinutes();
+  int ss = timeClient.getSeconds();
+
+  // Estilo del reloj
+  int centerX = tft.width() / 2;
+  int centerY = tft.height() / 2;
+
+  // Actualizar la pantalla si hay cambios
+  if (omm != mm)
+  {
+    omm = mm;
+    drawClockFace(centerX, centerY);    // Dibuja el fondo del reloj
+    drawTime(centerX, centerY, hh, mm); // Dibuja la hora y minutos
+  }
+
+  if (oss != ss)
+  {
+    oss = ss;
+    drawSeconds(centerX, centerY + 60, ss); // Dibuja los segundos
+  }
+
   if (analogHandler.isPressed())
   {
     machine.trigger(Triggers::MENU);
-  }
-
-  if (targetTime < millis())
-  {
-    // Set next update for 1 second later
-    targetTime = millis() + 1000;
-
-    // Adjust the time values by adding 1 second
-    ss++; // Advance second
-    if (ss == 60)
-    {           // Check for roll-over
-      ss = 0;   // Reset seconds to zero
-      omm = mm; // Save last minute time for display update
-      mm++;     // Advance minute
-      if (mm > 59)
-      { // Check for roll-over
-        mm = 0;
-        hh++; // Advance hour
-        if (hh > 23)
-        {         // Check for 24hr roll-over (could roll-over on 13)
-          hh = 0; // 0 for 24 hour clock, set to 1 for 12 hour clock
-        }
-      }
-    }
-
-    // Update digital time
-    int xpos = 85;
-    int ypos = 85; // Top left corner ot clock text, about half way down
-    int ysecs = ypos + 24;
-
-    if (omm != mm)
-    { // Redraw hours and minutes time every minute
-      omm = mm;
-      // Draw hours and minutes
-      if (hh < 10)
-        xpos += tft.drawChar('0', xpos, ypos, 4); // Add hours leading zero for 24 hr clock
-      xpos += tft.drawNumber(hh, xpos, ypos, 4);  // Draw hours
-      xcolon = xpos;                              // Save colon coord for later to flash on/off later
-      xpos += tft.drawChar(':', xpos, ypos - 6, 4);
-      if (mm < 10)
-        xpos += tft.drawChar('0', xpos, ypos, 4); // Add minutes leading zero
-      xpos += tft.drawNumber(mm, xpos, ypos, 4);  // Draw minutes
-      xsecs = xpos;                               // Sae seconds 'x' position for later display updates
-    }
-    if (oss != ss)
-    { // Redraw seconds time every second
-      oss = ss;
-      xpos = xsecs;
-
-      if (ss % 2)
-      {                                             // Flash the colons on/off
-        tft.setTextColor(0x39C4, TFT_BLACK);        // Set colour to grey to dim colon
-        tft.drawChar(':', xcolon, ypos - 6, 4);     // Hour:minute colon
-        xpos += tft.drawChar(':', xsecs, ysecs, 2); // Seconds colon
-        tft.setTextColor(TFT_YELLOW, TFT_BLACK);    // Set colour back to yellow
-      }
-      else
-      {
-        tft.drawChar(':', xcolon, ypos - 8, 4);         // Hour:minute colon
-        xpos += tft.drawChar(':', xsecs, ysecs - 2, 2); // Seconds colon
-      }
-
-      // Draw seconds
-      if (ss < 10)
-        xpos += tft.drawChar('0', xpos, ysecs, 2); // Add leading zero
-      tft.drawNumber(ss, xpos, ysecs, 1);          // Draw seconds
-    }
   }
 }
 
@@ -592,10 +619,11 @@ void clearScreen()
 
 void onEnterSpotifyState()
 {
-  tft.fillScreen(TFT_DARKGREEN);
+  tft.fillScreen(TFT_BLACK);
+  drawHeader("Spotify");
 
   tft.setTextColor(TFT_WHITE);
-
+  tft.setCursor(20, 80);
   tft.println("Spotify - no implementado");
 }
 
