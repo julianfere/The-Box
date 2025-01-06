@@ -532,9 +532,12 @@ void screenSaverState()
     yDraw = scroll_slow(TEXT_HEIGHT, 14); // Scroll, 14ms per pixel line
     xPos = 0;
   }
-
-exit:
-  machine.trigger(Triggers::MENU);
+  //  QUE HACES FLACO
+  if (false)
+  {
+  exit:
+    machine.trigger(Triggers::MENU);
+  }
 }
 
 void onExitScreenSacverState()
