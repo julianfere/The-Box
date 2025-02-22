@@ -5,6 +5,12 @@ Store::Store()
 {
 }
 
+Store &Store::getInstance()
+{
+  static Store instance;
+  return instance;
+}
+
 void Store::storeWifiSettings(WifiSettings &settings)
 {
   preferences.begin(STORE_NAMESPACE, false);
