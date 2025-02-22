@@ -180,3 +180,63 @@ void DisplayManager::drawMenu(int numOptions, int selectedOption, const char *me
     yOffset += verticalSpacing; // Move down for the next option
   }
 }
+
+void DisplayManager::drawClockFace(int x, int y)
+{
+  tft.fillCircle(x, y, 110, TFT_DARKGREY); // Fondo del reloj
+  tft.fillCircle(x, y, 100, TFT_BLACK);    // Borde interno
+  tft.drawCircle(x, y, 110, TFT_WHITE);    // Borde externo
+}
+
+// Dibuja la hora y minutos
+void DisplayManager::drawTime(int x, int y, int hh, int mm)
+{
+  char timeBuffer[6]; // Formato HH:MM
+  int xpos = x - 5;
+  sprintf(timeBuffer, "%02d:%02d", hh, mm);
+
+  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+  tft.setTextDatum(MC_DATUM);             // Centra el texto
+  tft.drawString(timeBuffer, xpos, y, 7); // Fuente 7 para hora
+}
+
+// Dibuja los segundos
+void DisplayManager::drawSeconds(int x, int y, int ss)
+{
+  char secondsBuffer[3]; // Formato SS
+  sprintf(secondsBuffer, "%02d", ss);
+
+  tft.setTextColor(TFT_CYAN, TFT_BLACK);
+  tft.setTextDatum(MC_DATUM);             // Centra el texto
+  tft.drawString(secondsBuffer, x, y, 2); // Fuente 4 para segundos
+}
+
+void DisplayManager::drawClockPage(NTPClient &timeClient)
+{
+  byte omm = 99, oss = 99;
+  byte xcolon = 0, xsecs = 0;
+  timeClient.update();
+
+  // Obtén la hora actual
+  int hh = timeClient.getHours();
+  int mm = timeClient.getMinutes();
+  int ss = timeClient.getSeconds();
+
+  // Estilo del reloj
+  int centerX = tft.width() / 2;
+  int centerY = tft.height() / 2;
+
+  // Actualizar la pantalla si hay cambios
+  if (omm != mm)
+  {
+    omm = mm;
+    drawClockFace(centerX, centerY);    // Dibuja el fondo del reloj
+    drawTime(centerX, centerY, hh, mm); // Dibuja la hora y minutos
+  }
+
+  if (oss != ss)
+  {
+    oss = ss;
+    drawSeconds(centerX, centerY + 60, ss); // Dibuja los segundos
+  }
+}

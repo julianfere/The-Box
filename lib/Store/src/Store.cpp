@@ -13,6 +13,7 @@ Store &Store::getInstance()
 
 void Store::storeWifiSettings(WifiSettings &settings)
 {
+  Serial.println("GUARDANDO WIFI SETTINGS");
   preferences.begin(STORE_NAMESPACE, false);
   preferences.putString(WIFI_SSID, settings.ssid);
   preferences.putString(WIFI_PASSWORD, settings.password);

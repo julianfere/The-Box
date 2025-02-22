@@ -4,7 +4,7 @@
 #include <DollarService.h>
 #include "WeatherService.h"
 #include <TFT_eSPI.h>
-
+#include <NTPClient.h>
 
 #define COLOR_BLUE tft.color565(0, 0, 255)
 #define COLOR_BLACK tft.color565(0, 0, 0)
@@ -26,9 +26,13 @@ public:
   void drawMenu(int numOptions, int selectedOption, const char *menuOptions[]);
   DisplayManager();
   static DisplayManager &getInstance();
+  void drawClockPage(NTPClient &timeClient);
 
 private:
   TFT_eSPI tft;
   static DisplayManager *instance;
+  void drawClockFace(int x, int y);
+  void drawTime(int x, int y, int hh, int mm);
+  void drawSeconds(int x, int y, int ss);
 };
 #endif

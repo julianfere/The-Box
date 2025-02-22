@@ -1,6 +1,9 @@
-#ifndef ANALOGHANDLER_H
-#define ANALOGHANDLER_H
 
+/*
+  AnalogHandler.h - Library for easy handling of analog inputs.
+*/
+#ifndef AnalogHandler_h
+#define AnalogHandler_h
 #include <Arduino.h>
 
 class AnalogHandler
@@ -19,14 +22,10 @@ private:
   int _xPin;
   int _yPin;
   int _swPin;
-  unsigned long _lastDebounceTime;
-  unsigned long _lastPressTime;
-  bool _waitingForSecondPress;
-  bool _doublePressHandled;
-  int _buttonState;
-  int _lastButtonState;
-  static const unsigned long DEBOUNCE_DELAY = 50;        // Tiempo de debounce en ms
-  static const unsigned long _doublePressInterval = 300; // Intervalo para doble pulsación en ms
+  unsigned long _lastPressTime = 0;
+  unsigned long _debounceTime = 0;
+  unsigned long _doublePressInterval = 500; // Intervalo máximo entre pulsaciones (ms)
+  bool _waitingForSecondPress = false;
+  bool _doublePressHandled = false; // Evita colisión entre métodos
 };
-
 #endif
