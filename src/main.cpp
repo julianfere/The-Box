@@ -1,14 +1,14 @@
 #include <Arduino.h>
 #include <WiFiUdp.h>
 #include <NTPClient.h>
-#include <SimpleFSM.h>
 #include <TFT_eSPI.h>
-#include "State.h"
 #include "ApServer.h"
 #include "Store.h"
 #include "WeatherService.h"
 #include "DollarService.h"
 #include "AnalogHandler.h"
+#include "StateMachine.h"
+#include "DisplayManager.h"
 //==============================================================================
 
 #define _INIT "INIT"
@@ -21,9 +21,6 @@
 #define _DOLAR "DOLAR"
 #define _SPOTIFY "SPOTIFY"
 
-#define BUTTON_1_PIN 12
-#define BUTTON_2_PIN 13
-
 const int xPin = 27;  // the VRX attach to
 const int yPin = 32;  // the VRY attach to
 const int swPin = 25; // the SW attach to
@@ -32,7 +29,6 @@ const int swPin = 25; // the SW attach to
 AnalogHandler analogHandler = AnalogHandler(xPin, yPin, swPin);
 
 TFT_eSPI tft = TFT_eSPI(); // Inicializa la pantalla
-SimpleFSM machine = SimpleFSM();
 ApServer apServer;
 Store store = Store();
 WeatherService weatherService = WeatherService();
@@ -41,28 +37,12 @@ DollarService dollarService = DollarService();
 NTPClient timeClient(ntpUDP, "pool.ntp.org", -3 * 3600, 60000);
 WeatherInfo WEATHER_INFO;
 DollarInfo DOLLAR_INFO;
+DisplayManager displayManager = DisplayManager();
 
 QueueHandle_t WIFI_STATUS_QUEUE = xQueueCreate(1, sizeof(bool));
 
 //==============================================================================
 
-int TRIES = 10;
-bool SHOW_DOLLAR = false;
-
-enum Triggers
-{
-  INIT = 1,
-  WIFI_DISCOVER = 2,
-  WIFI_CONNECT = 3,
-  DOLAR = 4,
-  WEATHER = 5,
-  MENU = 6,
-  SCREEN_SAVER = 7,
-  CLOCK_SCREEN = 8,
-  SPOTIFY = 9,
-};
-
-#pragma region Ui functions
 const int numOptions = 5;
 const char *menuOptions[numOptions] = {
     "Dolar",
@@ -74,285 +54,123 @@ const char *menuOptions[numOptions] = {
 int selectedOption = 0;
 int newOption = 0;
 
-#define COLOR_BLUE tft.color565(0, 0, 255)
-#define COLOR_BLACK tft.color565(0, 0, 0)
-#define COLOR_CYAN tft.color565(0, 255, 255)
-#define COLOR_LIGHT_BLUE tft.color565(173, 216, 230)
-#define COLOR_YELLOW tft.color565(255, 255, 0)
-#define COLOR_WHITE tft.color565(255, 255, 255)
-
-void drawHeader(const char *title)
+enum StateTransitions : int
 {
-  // Title "Menu" (larger size than options)
-  tft.setTextColor(COLOR_BLUE);
-  tft.setTextSize(2);  // Increase size of title
-  tft.setCursor(0, 0); // Center title horizontally
-  tft.print(title);
+  INIT = 0,
+  WIFI_DISCOVER = 1,
+  WIFI_CONNECT = 2,
+  MENU = 3,
+  CLOCK = 4,
+  SCREEN_SAVER = 5,
+  WEATHER = 6,
+  DOLAR = 7,
+  SPOTIFY = 8,
+  CLOCK_SCREEN = 9,
+};
 
-  // Draw lines (adjusted for spacing with the title)
-  tft.drawLine(0, 40, 250, 40, COLOR_BLUE);   // Horizontal line
-  tft.drawLine(210, 0, 210, 40, COLOR_BLUE);  // Vertical line
-  tft.drawLine(250, 40, 320, 40, COLOR_BLUE); // Horizontal line
-
-  // Custom label "TheBox" (larger size than options)
-  tft.setCursor(220, 0);
-  tft.setTextColor(tft.color565(255, 102, 67)); // Custom color for "TheBox"
-  tft.print("TheBox");
-  tft.setTextColor(COLOR_WHITE); // Custom color for "TheBox"
-}
-
-void drawMenu()
+void onEnterInit(StateMachine &machine)
 {
-  int verticalSpacing = tft.fontHeight() + 4; // Vertical spacing between options, increased for readability
-  tft.fillScreen(COLOR_BLACK);                // Clear screen with black background
+  Serial.println("=========================================================================");
+  Serial.println("Iniciando...");
+  Serial.println("=========================================================================");
 
-  drawHeader("Menu");
-  tft.setTextColor(COLOR_WHITE); // Custom color for "TheBox"
+  displayManager.drawInitPage();
 
-  int yOffset = 60; // Initial vertical position for options (below the title)
-
-  // Draw menu options with selection effect
-  for (int i = 0; i < numOptions; i++)
-  {
-    if (i == selectedOption)
-    {
-      // Highlight selected option with yellow background (full width)
-      tft.drawRect(0, yOffset - 2, tft.width(), verticalSpacing, COLOR_CYAN);
-    }
-
-    // Position each option centered horizontally
-    tft.setCursor((tft.width() - tft.textWidth(menuOptions[i])) / 2, yOffset);
-    tft.setTextFont(2); // Use a larger font for options
-    tft.print(menuOptions[i]);
-    yOffset += verticalSpacing; // Move down for the next option
-  }
-}
-
-void drawInitPage()
-{
-  drawHeader("");
-  tft.fillScreen(TFT_BLACK);
-
-  // Título centrado
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextFont(2); // Fuente pequeña y moderna
-  tft.setTextDatum(TC_DATUM);
-  tft.drawString("Inicializando...", tft.width() / 2, tft.height() / 2);
-}
-
-void drawWifiDiscoveryPage()
-{
-  tft.fillScreen(TFT_BLACK);
-  drawHeader("WiFi");
-
-  // Título centrado
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextFont(2);
-  tft.setTextDatum(TC_DATUM);
-  tft.drawString("Buscando Redes", tft.width() / 2, tft.height() / 2 - 10);
-
-  // Texto pequeño para la descripción
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextFont(1);
-  tft.setCursor(30, tft.height() / 2 + 20);
-  tft.println("Escaneando redes...");
-}
-
-void drawWifiConnectionProgress()
-{
-  tft.fillScreen(TFT_BLACK);
-  drawHeader("WiFi");
-  // Título centrado y simple
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextFont(2);
-  tft.setTextDatum(TC_DATUM);
-  tft.drawString("Conectando WiFi", tft.width() / 2, 30);
-
-  // Progreso sencillo, no sobrecargar
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextFont(1);
-  tft.setCursor(30, tft.height() / 2);
-  tft.println("Esperando...");
-}
-
-void drawDolarPage(bool loading = false)
-{
-  tft.fillScreen(TFT_BLACK);
-  drawHeader("Dolar");
-  // Título centrado y pequeño
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-
-  if (loading)
-  {
-    tft.setTextFont(2);
-    tft.setCursor(20, 80);
-    tft.println("Cargando...");
-    return;
-  }
-
-  // Sección Dólar Blue y Oficial
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setCursor(20, 80);
-  tft.println("Blue: " + String(DOLLAR_INFO.blue));
-
-  tft.setCursor(20, 110);
-  tft.println("Oficial: " + String(DOLLAR_INFO.oficial));
-}
-
-void drawWeatherPage(bool loading = false)
-{
-  tft.fillScreen(TFT_BLACK);
-  drawHeader("Clima");
-
-  if (loading)
-  {
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.setTextFont(2);
-    tft.setCursor(20, 80);
-    tft.println("Cargando...");
-    return;
-  }
-
-  // Título centrado
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextFont(4);
-
-  // Datos del clima con poco texto y espacio
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setTextFont(2);
-  tft.setCursor(20, 80);
-  tft.println("Cielo: " + WEATHER_INFO.status);
-
-  tft.setCursor(20, 110);
-  tft.println("Temp: " + String(WEATHER_INFO.temp) + "°C");
-
-  tft.setCursor(20, 140);
-  tft.println("Humedad: " + String(WEATHER_INFO.hum) + "%");
-
-  tft.setCursor(20, 170);
-  tft.println("Lluvia: " + String(WEATHER_INFO.rain) + "%");
-}
-
-#pragma endregion
-
-#pragma region State Handlers
-//==============================================================================
-
-void initeState()
-{
-  drawInitPage();
   if (store.hasWifiSettings())
   {
-    // Carga la configuracion del wifi e intenta conectarse a la red
-    WifiSettings wifiSettings = store.getWifiSettings();
-    apServer.setSsid(wifiSettings.ssid);
-    apServer.setPassword(wifiSettings.password);
-
-    Serial.println("Conectando a red guardada");
-
-    machine.trigger(Triggers::WIFI_CONNECT);
+    Serial.println("store tiene wifi settings");
+    machine.changeState(StateTransitions::WIFI_CONNECT);
   }
   else
   {
-    machine.trigger(Triggers::WIFI_DISCOVER);
+    Serial.println("store NO tiene wifi settings");
+
+    machine.changeState(StateTransitions::WIFI_DISCOVER);
   }
 }
 
-#pragma region Wifi Discovery State
-
-void onEnterwifiDiscoveryState()
+void onEnterWaiting(StateMachine &machine)
 {
-  apServer.setup();
-  drawWifiDiscoveryPage();
-  sleep(100);
+  Serial.println("=========================================================================");
+  Serial.println("Discovery...");
+  Serial.println("=========================================================================");
+  displayManager.drawWifiDiscoveryPage();
 }
 
-void wifiDiscoveryState()
+void onStateWaiting(StateMachine &machine)
 {
   apServer.handleNextRequest();
 
   if (apServer.networkSelected())
   {
-    machine.trigger(Triggers::WIFI_CONNECT);
+    machine.changeState(StateTransitions::WIFI_CONNECT);
   }
 }
 
-void onExitWifiDiscoveryState()
+void onExitWaiting(StateMachine &machine)
 {
   apServer.teardown();
 }
-#pragma endregion
-#pragma region Connect State
 
-void connectTask(void *pvParameters)
+void onEnterConnecting(StateMachine &machine)
 {
-  bool isConnected = false;
-
-  WiFi.begin(apServer.getSsid(), apServer.getPassword());
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(100);
-  }
-  isConnected = true;
-
-  // Envía el estado de conexión a la cola
-  xQueueSend(WIFI_STATUS_QUEUE, &isConnected, portMAX_DELAY);
-
-  vTaskDelete(NULL);
-}
-
-void onEnterConnectState()
-{
-  xTaskCreatePinnedToCore(
-      connectTask,
-      "ConnectTask",
-      10000,
-      NULL,
-      1,
-      NULL,
-      0);
-}
-
-void connectState()
-{
-  bool isConnected = false;
-
-  BaseType_t res = xQueueReceive(WIFI_STATUS_QUEUE, &isConnected, 0);
-  drawWifiConnectionProgress();
-
-  if (res == pdTRUE)
-  {
-    if (isConnected)
-    {
-      WifiSettings wifiSettings = {apServer.getSsid(), apServer.getPassword()};
-      store.storeWifiSettings(wifiSettings);
-
-      machine.trigger(Triggers::MENU);
-    }
-  }
-
-  if (!isConnected)
-  {
-    machine.trigger(Triggers::WIFI_DISCOVER);
-    tft.fillScreen(TFT_BLACK);
-  }
-}
-
-#pragma end region
-
-#pragma redion Menu State
-
-void onEnterMenuState()
-{
+  Serial.println("=========================================================================");
+  Serial.println("Connecting...");
+  Serial.println("=========================================================================");
+  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+  tft.setTextSize(2);
+  tft.setCursor(10, 10);
   tft.fillScreen(TFT_BLACK);
-  tft.fillScreen(TFT_BLACK);
-  drawMenu();
+  tft.println("Conectando...");
+  String ssid;
+  String password;
+
+  if (store.hasWifiSettings())
+  {
+    WifiSettings settints = store.getWifiSettings();
+    ssid = settints.ssid;
+    password = settints.password;
+  }
+  else
+  {
+    ssid = apServer.getSsid();
+    password = apServer.getPassword();
+  }
+
+  WiFi.begin(ssid.c_str(), password.c_str());
 }
 
-void menuState()
+void onStateConnecting(StateMachine &machine)
+{
+  unsigned long startTime = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - startTime < 10000)
+  {
+    Serial.printf("Conectando, tiempo restante: %d\n", 10 - (millis() - startTime) / 1000);
+    delay(100); // Pequeño delay para no saturar el CPU
+  }
+
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    WifiSettings settings = WifiSettings{apServer.getSsid(), apServer.getPassword()};
+    store.storeWifiSettings(settings);
+    machine.changeState(StateTransitions::MENU);
+  }
+  else
+  {
+    machine.changeState(StateTransitions::WIFI_DISCOVER);
+  }
+}
+
+void onEnterConnected(StateMachine &machine)
+{
+  displayManager.drawMenu(numOptions, selectedOption, menuOptions);
+}
+
+void onMenu(StateMachine &machine)
 {
   if (analogHandler.isDown())
   {
+    Serial.println("Down");
     if (newOption == numOptions - 1)
     {
       newOption = 0;
@@ -364,6 +182,8 @@ void menuState()
   }
   else if (analogHandler.isUp())
   {
+    Serial.println("Up");
+
     if (newOption == 0)
     {
       newOption = numOptions - 1;
@@ -377,93 +197,95 @@ void menuState()
   if (selectedOption != newOption)
   {
     selectedOption = newOption;
-    drawMenu();
+    displayManager.drawMenu(numOptions, selectedOption, menuOptions);
   }
+
+  // FIXME: No funciona el isPressed devuelve siempre true
 
   if (analogHandler.isPressed())
   {
+    Serial.printf("Selected option: %d\n", selectedOption);
     switch (selectedOption)
     {
     case 0:
-      machine.trigger(Triggers::DOLAR);
+      machine.changeState(StateTransitions::DOLAR);
       break;
     case 1:
-      machine.trigger(Triggers::CLOCK_SCREEN);
+      machine.changeState(StateTransitions::CLOCK_SCREEN);
       break;
     case 2:
-      machine.trigger(Triggers::WEATHER);
+      machine.changeState(StateTransitions::WEATHER);
       break;
     case 3:
-      machine.trigger(Triggers::SCREEN_SAVER);
+      machine.changeState(StateTransitions::SCREEN_SAVER);
       break;
     case 4:
-      machine.trigger(Triggers::SPOTIFY);
+      machine.changeState(StateTransitions::SPOTIFY);
+      break;
+    default:
+      Serial.println("Invalid option");
       break;
     }
   }
+  delay(50);
 }
 
-#pragma endregion
-
-#pragma region Dolar State
-
-int DOLLAR_FETCH_INTERVAL = 600000;
-int lastDollarFetch = 0;
-
-void onEnterDolarState()
+void onEnterDolar(StateMachine &machine)
 {
-  drawDolarPage(true);
+  Serial.println("=========================================================================");
+  Serial.println("Dolar...");
+  Serial.println("=========================================================================");
   DOLLAR_INFO = dollarService.getCurrent();
-  drawDolarPage();
+  displayManager.drawDolarPage(DOLLAR_INFO);
 }
 
-void dolarState()
+void onDolar(StateMachine &machine)
 {
-  if (millis() - lastDollarFetch > DOLLAR_FETCH_INTERVAL)
-  {
-    DOLLAR_INFO = dollarService.getCurrent();
-    lastDollarFetch = millis();
-    drawDolarPage();
-  }
-
   if (analogHandler.isPressed())
   {
-    machine.trigger(Triggers::MENU);
+    machine.changeState(StateTransitions::MENU);
   }
 }
 
-#pragma endregion
-
-#pragma region Weather State
-
-int WEATHER_FETCH_INTERVAL = 60000;
-int lastWeatherFetch = 0;
-
-void onEnterWeatherState()
+void onEnterWeather(StateMachine &machine)
 {
-  drawWeatherPage(true);
+  Serial.println("=========================================================================");
+  Serial.println("Clima...");
+  Serial.println("=========================================================================");
   WEATHER_INFO = weatherService.getCurrent();
-  drawWeatherPage();
+  displayManager.drawWeatherPage(WEATHER_INFO, true);
 }
 
-void weatherState()
+void onWeather(StateMachine &machine)
 {
-  if (millis() - lastWeatherFetch > WEATHER_FETCH_INTERVAL)
-  {
-    WEATHER_INFO = weatherService.getCurrent();
-    lastWeatherFetch = millis();
-    drawWeatherPage();
-  }
-
   if (analogHandler.isPressed())
   {
-    machine.trigger(Triggers::MENU);
+    machine.changeState(StateTransitions::MENU);
   }
 }
 
-#pragma endregion
+void onEnterClock(StateMachine &machine)
+{
+  Serial.println("=========================================================================");
+  Serial.println("Reloj...");
+  Serial.println("=========================================================================");
+}
 
-#pragma region Screen Saver State
+void onClock(StateMachine &machine)
+{
+  if (analogHandler.isPressed())
+  {
+    machine.changeState(StateTransitions::MENU);
+  }
+  displayManager.drawClockPage(timeClient);
+}
+
+void onEnterScreenSaver(StateMachine &machine)
+{
+  Serial.println("=========================================================================");
+  Serial.println("Salva Pantallas...");
+  Serial.println("=========================================================================");
+}
 
 #define TEXT_HEIGHT 8    // Height of text to be printed and scrolled
 #define BOT_FIXED_AREA 0 // Number of lines in bottom fixed area (lines counted from bottom of screen)
@@ -507,7 +329,7 @@ int scroll_slow(int lines, int wait)
   return yTemp;
 }
 
-void screenSaverState()
+void onScreenSaver(StateMachine &machine)
 {
   // First fill the screen with random streaks of characters
   for (int j = 0; j < 600; j += TEXT_HEIGHT)
@@ -536,206 +358,72 @@ void screenSaverState()
   if (false)
   {
   exit:
-    machine.trigger(Triggers::MENU);
+    machine.changeState(StateTransitions::MENU);
   }
 }
 
-void onExitScreenSacverState()
+void onEnterSpotify(StateMachine &machine)
 {
+  Serial.println("=========================================================================");
+  Serial.println("Spotify...");
+  Serial.println("=========================================================================");
   tft.fillScreen(TFT_BLACK);
-  setupScrollArea(0, 0);
-  scrollAddress(0);
-}
-
-#pragma endregion
-
-#pragma region Clock State
-
-uint32_t targetTime = 0; // for next 1 second timeout
-
-#define TFT_GREY 0x5AEB
-
-byte omm = 99, oss = 99;
-byte xcolon = 0, xsecs = 0;
-unsigned int colour = 0;
-
-void onEnterClockState()
-{
-  tft.setTextSize(1);
-}
-
-void drawClockFace(int x, int y)
-{
-  tft.fillCircle(x, y, 110, TFT_DARKGREY); // Fondo del reloj
-  tft.fillCircle(x, y, 100, TFT_BLACK);    // Borde interno
-  tft.drawCircle(x, y, 110, TFT_WHITE);    // Borde externo
-}
-
-// Dibuja la hora y minutos
-void drawTime(int x, int y, int hh, int mm)
-{
-  char timeBuffer[6]; // Formato HH:MM
-  int xpos = x - 5;
-  sprintf(timeBuffer, "%02d:%02d", hh, mm);
-
-  tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-  tft.setTextDatum(MC_DATUM);             // Centra el texto
-  tft.drawString(timeBuffer, xpos, y, 7); // Fuente 7 para hora
-}
-
-// Dibuja los segundos
-void drawSeconds(int x, int y, int ss)
-{
-  char secondsBuffer[3]; // Formato SS
-  sprintf(secondsBuffer, "%02d", ss);
-
-  tft.setTextColor(TFT_CYAN, TFT_BLACK);
-  tft.setTextDatum(MC_DATUM);             // Centra el texto
-  tft.drawString(secondsBuffer, x, y, 2); // Fuente 4 para segundos
-}
-
-void clockState()
-{
-  timeClient.update();
-
-  // Obtén la hora actual
-  int hh = timeClient.getHours();
-  int mm = timeClient.getMinutes();
-  int ss = timeClient.getSeconds();
-
-  // Estilo del reloj
-  int centerX = tft.width() / 2;
-  int centerY = tft.height() / 2;
-
-  // Actualizar la pantalla si hay cambios
-  if (omm != mm)
-  {
-    omm = mm;
-    drawClockFace(centerX, centerY);    // Dibuja el fondo del reloj
-    drawTime(centerX, centerY, hh, mm); // Dibuja la hora y minutos
-  }
-
-  if (oss != ss)
-  {
-    oss = ss;
-    drawSeconds(centerX, centerY + 60, ss); // Dibuja los segundos
-  }
-
-  if (analogHandler.isPressed())
-  {
-    machine.trigger(Triggers::MENU);
-  }
-}
-
-void clearScreen()
-{
-  delay(100);
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextSize(2);
-  tft.fillScreen(TFT_BLACK);
-}
-
-#pragma endregion
-
-#pragma region Spotify State
-
-void onEnterSpotifyState()
-{
-  tft.fillScreen(TFT_BLACK);
-  drawHeader("Spotify");
-
   tft.setTextColor(TFT_WHITE);
-  tft.setCursor(20, 80);
-  tft.println("Spotify - no implementado");
+  tft.setTextSize(2);
+  tft.setCursor(10, 10);
+  tft.println("Algun dia");
 }
 
-void spotifyState()
+void onSpotify(StateMachine &machine)
 {
   if (analogHandler.isPressed())
   {
-    machine.trigger(Triggers::MENU);
+    machine.changeState(StateTransitions::MENU);
   }
 }
 
-//==============================================================================
-#pragma region States Transitions
-//                        Nombre              OnEnter                 OnState                 OnExit
-
-State INIT_STATE = State(_INIT, initeState);
-State WIFI_DISCOVER_STATE = State(_WIFI_DISCOVER, onEnterwifiDiscoveryState, wifiDiscoveryState, onExitWifiDiscoveryState);
-State WIFI_CONNECT_STATE = State(_WIFI_CONNECT, onEnterConnectState, connectState, clearScreen);
-State MENU_STATE = State(_MENU, onEnterMenuState, menuState, clearScreen);
-State WEATHER_STATE = State(_WEATHER, onEnterWeatherState, weatherState, clearScreen);
-State DOLAR_STATE = State(_DOLAR, onEnterDolarState, dolarState, clearScreen);
-State CLOCK_STATE = State(_CLOCK, NULL, clockState, clearScreen);
-State SCREEN_SAVER_STATE = State(_SCREEN_SAVER, NULL, screenSaverState, onExitScreenSacverState);
-State SPOTIFY_STATE = State(_SPOTIFY, onEnterSpotifyState, spotifyState, clearScreen);
-
-//==============================================================================
-
-void log(String from, String to)
-{
-  Serial.println("================================================");
-  Serial.println("From: " + from + " to: " + to);
-  Serial.println("================================================");
-}
-
-Transition transitions[]{
-    Transition(&INIT_STATE, &WIFI_DISCOVER_STATE, Triggers::WIFI_DISCOVER, []()
-               { log("init", "wifi discover"); }),
-    Transition(&INIT_STATE, &WIFI_CONNECT_STATE, Triggers::WIFI_CONNECT, []()
-               { log("init", "connect"); }),
-    Transition(&WIFI_DISCOVER_STATE, &WIFI_CONNECT_STATE, Triggers::WIFI_CONNECT, []()
-               { log("wifi discover", "connect"); }),
-    Transition(&WIFI_CONNECT_STATE, &WIFI_DISCOVER_STATE, Triggers::WIFI_DISCOVER, []()
-               { log("connect", "wifi discover"); }),
-    Transition(&WIFI_CONNECT_STATE, &MENU_STATE, Triggers::MENU, []()
-               { log("connect", "menu"); }),
-    Transition(&MENU_STATE, &WEATHER_STATE, Triggers::WEATHER, []()
-               { log("menu", "weather"); }),
-    Transition(&MENU_STATE, &DOLAR_STATE, Triggers::DOLAR, []()
-               { log("menu", "dolar"); }),
-    Transition(&MENU_STATE, &CLOCK_STATE, Triggers::CLOCK_SCREEN, []()
-               { log("menu", "clock"); }),
-    Transition(&MENU_STATE, &SCREEN_SAVER_STATE, Triggers::SCREEN_SAVER, []()
-               { log("menu", "screen saver"); }),
-    Transition(&MENU_STATE, &SPOTIFY_STATE, Triggers::SPOTIFY, []()
-               { log("menu", "spotify"); }),
-    Transition(&WEATHER_STATE, &MENU_STATE, Triggers::MENU, []()
-               { log("weather", "menu"); }),
-    Transition(&DOLAR_STATE, &MENU_STATE, Triggers::MENU, []()
-               { log("dolar", "menu"); }),
-    Transition(&CLOCK_STATE, &MENU_STATE, Triggers::MENU, []()
-               { log("clock", "menu"); }),
-    Transition(&SCREEN_SAVER_STATE, &MENU_STATE, Triggers::MENU, []()
-               { log("screen saver", "menu"); }),
-    Transition(&SPOTIFY_STATE, &MENU_STATE, Triggers::MENU, []()
-               { log("spotify", "menu"); }),
+DState states[] = {
+    {_INIT, onEnterInit, NULL, NULL, 0},
+    {_WIFI_DISCOVER, onEnterWaiting, onStateWaiting, onExitWaiting, 0},
+    {_WIFI_CONNECT, onEnterConnecting, onStateConnecting, NULL, 0},
+    {_MENU, onEnterConnected, onMenu, NULL, 0},
+    {_CLOCK, onEnterClock, onClock, NULL, 0},
+    {_SCREEN_SAVER, onEnterScreenSaver, onScreenSaver, NULL, 0},
+    {_WEATHER, onEnterWeather, onWeather, NULL, 0},
+    {_DOLAR, onEnterDolar, onDolar, NULL, 0},
+    {_SPOTIFY, onEnterSpotify, onSpotify, NULL, 0},
 };
 
-#pragma endregion
+DTransition transitions[] = {
+    {_INIT, StateTransitions::WIFI_DISCOVER, _WIFI_DISCOVER},
+    {_INIT, StateTransitions::WIFI_CONNECT, _WIFI_CONNECT},
+    {_WIFI_DISCOVER, StateTransitions::WIFI_CONNECT, _WIFI_CONNECT},
+    {_WIFI_CONNECT, StateTransitions::WIFI_DISCOVER, _WIFI_DISCOVER},
+    {_WIFI_CONNECT, StateTransitions::MENU, _MENU},
+    {_MENU, StateTransitions::CLOCK_SCREEN, _CLOCK},
+    {_MENU, StateTransitions::SCREEN_SAVER, _SCREEN_SAVER},
+    {_MENU, StateTransitions::WEATHER, _WEATHER},
+    {_MENU, StateTransitions::DOLAR, _DOLAR},
+    {_MENU, StateTransitions::SPOTIFY, _SPOTIFY},
+    {_CLOCK, StateTransitions::MENU, _MENU},
+    {_SCREEN_SAVER, StateTransitions::MENU, _MENU},
+    {_WEATHER, StateTransitions::MENU, _MENU},
+    {_DOLAR, StateTransitions::MENU, _MENU},
+    {_SPOTIFY, StateTransitions::MENU, _MENU},
+    {_CLOCK, StateTransitions::MENU, _MENU},
+};
+
+StateMachine stateMachine(states, 9, transitions, 16);
 
 void setup()
 {
   Serial.begin(115200);
-
-  int num_transitions = sizeof(transitions) / sizeof(Transition);
-
-  machine.add(transitions, num_transitions);
-  machine.setInitialState(&INIT_STATE);
-
-  analogHandler.setup();
-
-  tft.init();
-  tft.setRotation(1); // Ajustar rotación según tu pantalla
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
-  tft.setTextSize(2);
-
-  Serial.println(machine.getDotDefinition()); // Imprime la definición del grafo en formato DOT para usar en graphviz
+  displayManager.init();
+  apServer.setup();
+  stateMachine.begin(_INIT);
 }
 
 void loop()
 {
-  machine.run();
+  stateMachine.update();
 }

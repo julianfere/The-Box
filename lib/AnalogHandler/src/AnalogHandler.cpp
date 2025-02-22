@@ -5,6 +5,10 @@ AnalogHandler::AnalogHandler(int xPin, int yPin, int swPin)
   this->_xPin = xPin;
   this->_yPin = yPin;
   this->_swPin = swPin;
+  this->_lastPressTime = 0;
+  this->_waitingForSecondPress = false;
+  this->_doublePressHandled = false;
+  this->_debounceTime = 0;
 }
 
 void AnalogHandler::setup()
@@ -34,21 +38,25 @@ bool AnalogHandler::isRight()
 
 bool AnalogHandler::isPressed()
 {
-  // Si ya se manejó una doble pulsación, no activar `isPressed`
-  if (_doublePressHandled)
+  unsigned long currentTime = millis();
+  if (currentTime - _debounceTime > 50) // 50ms de debounce
   {
-    _doublePressHandled = false; // Reinicia para futuras llamadas
-    return false;
+    bool buttonState = digitalRead(this->_swPin) == LOW;
+    if (buttonState)
+    {
+      _debounceTime = currentTime;
+      return true;
+    }
   }
-  return digitalRead(this->_swPin) == LOW;
+  return false;
 }
 
 bool AnalogHandler::isDoublePressed()
 {
-  bool buttonState = isPressed(); // Usa la lógica de `isPressed`
   unsigned long currentTime = millis();
+  bool buttonState = digitalRead(this->_swPin) == LOW;
 
-  if (buttonState && currentTime - _debounceTime > 50)
+  if (buttonState && currentTime - _debounceTime > 50) // 50ms de debounce
   {
     _debounceTime = currentTime;
 

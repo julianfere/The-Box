@@ -1,3 +1,4 @@
+
 /*
   AnalogHandler.h - Library for easy handling of analog inputs.
 */
