@@ -37,10 +37,12 @@ void DisplayManager::init()
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
   tft.setTextSize(2);
+  tft.setSwapBytes(true); // Habilita el intercambio de bytes en comunicación SPI
 }
 void DisplayManager::drawInitPage()
 {
   tft.fillScreen(TFT_BLACK);
+  yield();
   drawHeader("");
 
   // Título centrado
@@ -98,6 +100,7 @@ void DisplayManager::drawWifiConnectionProgress()
 void DisplayManager::drawDolarPage(DollarInfo data, bool loading)
 {
   tft.fillScreen(TFT_BLACK);
+  yield();
   drawHeader("Dolar");
   // Título centrado y pequeño
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
@@ -123,6 +126,7 @@ void DisplayManager::drawDolarPage(DollarInfo data, bool loading)
 void DisplayManager::drawWeatherPage(WeatherInfo data, bool loading)
 {
   tft.fillScreen(TFT_BLACK);
+  yield();
   drawHeader("Clima");
 
   if (loading)
@@ -158,6 +162,7 @@ void DisplayManager::drawMenu(int numOptions, int selectedOption, const char *me
 {
   int verticalSpacing = tft.fontHeight() + 4; // Vertical spacing between options, increased for readability
   tft.fillScreen(COLOR_BLACK);                // Clear screen with black background
+  yield();
 
   drawHeader("Menu");
   tft.setTextColor(COLOR_WHITE); // Custom color for "TheBox"
@@ -213,30 +218,36 @@ void DisplayManager::drawSeconds(int x, int y, int ss)
 
 void DisplayManager::drawClockPage(NTPClient &timeClient)
 {
-  byte omm = 99, oss = 99;
-  byte xcolon = 0, xsecs = 0;
-  timeClient.update();
+  static unsigned long lastUpdate = 0;
+  static byte omm = 99, oss = 99; // Valores iniciales inválidos para forzar la primera actualización
 
-  // Obtén la hora actual
-  int hh = timeClient.getHours();
-  int mm = timeClient.getMinutes();
-  int ss = timeClient.getSeconds();
+  unsigned long currentMillis = millis();
 
-  // Estilo del reloj
-  int centerX = tft.width() / 2;
-  int centerY = tft.height() / 2;
-
-  // Actualizar la pantalla si hay cambios
-  if (omm != mm)
+  // Solo actualiza cada segundo
+  if (currentMillis - lastUpdate >= 1000)
   {
-    omm = mm;
-    drawClockFace(centerX, centerY);    // Dibuja el fondo del reloj
-    drawTime(centerX, centerY, hh, mm); // Dibuja la hora y minutos
-  }
+    lastUpdate = currentMillis;
+    timeClient.update(); // Sincroniza la hora NTP
 
-  if (oss != ss)
-  {
-    oss = ss;
-    drawSeconds(centerX, centerY + 60, ss); // Dibuja los segundos
+    int hh = timeClient.getHours();
+    int mm = timeClient.getMinutes();
+    int ss = timeClient.getSeconds();
+
+    int centerX = tft.width() / 2;
+    int centerY = tft.height() / 2;
+
+    // Solo redibuja si hay cambios
+    if (omm != mm)
+    {
+      omm = mm;
+      drawClockFace(centerX, centerY);    // Fondo del reloj
+      drawTime(centerX, centerY, hh, mm); // Actualiza la hora y minutos
+    }
+
+    if (oss != ss)
+    {
+      oss = ss;
+      drawSeconds(centerX, centerY + 60, ss); // Solo redibuja los segundos
+    }
   }
 }

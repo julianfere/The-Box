@@ -44,15 +44,12 @@ String ApServer::getPassword()
 
 void ApServer::setupAp()
 {
-  Serial.println("Iniciando modo AP...");
   WiFi.softAP(AP_SSID, AP_PASSWORD);
   IPAddress IP = WiFi.softAPIP();
-  Serial.println("AP IP address: " + IP.toString());
 }
 
 void ApServer::scanNetworks()
 {
-  Serial.println("Escaneando redes Wi-Fi...");
   int networkCount = WiFi.scanNetworks();
 
   for (int i = 0; i < networkCount; i++)
@@ -61,30 +58,25 @@ void ApServer::scanNetworks()
   }
 
   std::sort(networks.begin(), networks.end());
-  Serial.println("Escaneo completado. " + String(networks.size()) + " redes encontradas.");
 }
 
 void ApServer::setSsid(const String ssid)
 {
   this->ssid = ssid;
-  Serial.println("SSID establecido: " + ssid);
 }
 
 void ApServer::setPassword(const String password)
 {
   this->password = password;
-  Serial.println("Contraseña establecida.");
 }
 
 void ApServer::setReadyToConnect(bool readyToConnect)
 {
   this->readyToConnect = readyToConnect;
-  Serial.println("Listo para conectar: " + String(readyToConnect ? "Sí" : "No"));
 }
 
 void ApServer::handleHome(AsyncWebServerRequest *request)
 {
-  Serial.println("Manejando solicitud /home");
   String html = MAIN_PAGE_1;
 
   int total_networks = this->networks.size() > NETWORK_CAP ? NETWORK_CAP : this->networks.size();
@@ -113,35 +105,23 @@ void ApServer::setup()
   this->ssid = "";
   this->password = "";
 
-  // Iniciar el servidor DNS captive portal
   _dnsServer.start(53, "*", WiFi.softAPIP());
-  Serial.println("Servidor DNS captive portal iniciado.");
+  _server.addHandler(new CaptiveRequestHandler());
 
-  // Escanear redes Wi-Fi disponibles
   scanNetworks();
 
-  // Configurar rutas del servidor
   _server.on("/", HTTP_GET, [this](AsyncWebServerRequest *request)
-             {
-    Serial.println("Solicitud GET recibida en /");
-    this->handleHome(request); });
+             { this->handleHome(request); });
 
   _server.on("/connect", HTTP_POST, [this](AsyncWebServerRequest *request)
              {
-    Serial.println("Solicitud POST recibida en /connect");
     if (request->hasParam("ssid", true) && request->hasParam("password", true)) {
       this->setSsid(request->getParam("ssid", true)->value());
       this->setPassword(request->getParam("password", true)->value());
       this->setReadyToConnect(true);
-      Serial.println("Credenciales recibidas: SSID=" + this->ssid + ", Password=" + this->password);
     }
     request->send(200, "text/html", CONNECTING_PAGE); });
 
-  // Añadir el manejador captive portal
-  _server.addHandler(new CaptiveRequestHandler()).setFilter(ON_AP_FILTER);
-  Serial.println("Manejador captive portal añadido.");
-
-  // Iniciar el servidor
   _server.begin();
   Serial.println("Servidor HTTP iniciado.");
 }
