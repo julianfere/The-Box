@@ -1,4 +1,6 @@
 #include <DisplayManager.h>
+#include <vector>
+#include <string>
 
 DisplayManager *DisplayManager::instance = nullptr;
 
@@ -37,10 +39,12 @@ void DisplayManager::init()
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK, true);
   tft.setTextSize(2);
+  tft.setSwapBytes(true); // Habilita el intercambio de bytes en comunicación SPI
 }
 void DisplayManager::drawInitPage()
 {
   tft.fillScreen(TFT_BLACK);
+  yield();
   drawHeader("");
 
   // Título centrado
@@ -98,6 +102,7 @@ void DisplayManager::drawWifiConnectionProgress()
 void DisplayManager::drawDolarPage(DollarInfo data, bool loading)
 {
   tft.fillScreen(TFT_BLACK);
+  yield();
   drawHeader("Dolar");
   // Título centrado y pequeño
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
@@ -123,6 +128,7 @@ void DisplayManager::drawDolarPage(DollarInfo data, bool loading)
 void DisplayManager::drawWeatherPage(WeatherInfo data, bool loading)
 {
   tft.fillScreen(TFT_BLACK);
+  yield();
   drawHeader("Clima");
 
   if (loading)
@@ -158,6 +164,7 @@ void DisplayManager::drawMenu(int numOptions, int selectedOption, const char *me
 {
   int verticalSpacing = tft.fontHeight() + 4; // Vertical spacing between options, increased for readability
   tft.fillScreen(COLOR_BLACK);                // Clear screen with black background
+  yield();
 
   drawHeader("Menu");
   tft.setTextColor(COLOR_WHITE); // Custom color for "TheBox"
@@ -213,30 +220,234 @@ void DisplayManager::drawSeconds(int x, int y, int ss)
 
 void DisplayManager::drawClockPage(NTPClient &timeClient)
 {
-  byte omm = 99, oss = 99;
-  byte xcolon = 0, xsecs = 0;
-  timeClient.update();
+  static unsigned long lastUpdate = 0;
+  static byte omm = 99, oss = 99; // Valores iniciales inválidos para forzar la primera actualización
 
-  // Obtén la hora actual
-  int hh = timeClient.getHours();
-  int mm = timeClient.getMinutes();
-  int ss = timeClient.getSeconds();
+  unsigned long currentMillis = millis();
 
-  // Estilo del reloj
-  int centerX = tft.width() / 2;
-  int centerY = tft.height() / 2;
-
-  // Actualizar la pantalla si hay cambios
-  if (omm != mm)
+  // Solo actualiza cada segundo
+  if (currentMillis - lastUpdate >= 1000)
   {
-    omm = mm;
-    drawClockFace(centerX, centerY);    // Dibuja el fondo del reloj
-    drawTime(centerX, centerY, hh, mm); // Dibuja la hora y minutos
+    lastUpdate = currentMillis;
+    timeClient.update(); // Sincroniza la hora NTP
+
+    int hh = timeClient.getHours();
+    int mm = timeClient.getMinutes();
+    int ss = timeClient.getSeconds();
+
+    int centerX = tft.width() / 2;
+    int centerY = tft.height() / 2;
+
+    // Solo redibuja si hay cambios
+    if (omm != mm)
+    {
+      omm = mm;
+      drawClockFace(centerX, centerY);    // Fondo del reloj
+      drawTime(centerX, centerY, hh, mm); // Actualiza la hora y minutos
+    }
+
+    if (oss != ss)
+    {
+      oss = ss;
+      drawSeconds(centerX, centerY + 60, ss); // Solo redibuja los segundos
+    }
+  }
+}
+
+void DisplayManager::printSplitString(String text, int maxLineSize, int yPos)
+{
+  std::vector<std::string> parts;
+  int currentWordStart = 0;
+  int spaceIndex = text.indexOf(" ");
+
+  while (spaceIndex != -1)
+  {
+    parts.push_back(text.substring(currentWordStart, spaceIndex).c_str());
+    currentWordStart = spaceIndex + 1;
+    spaceIndex = text.indexOf(" ", currentWordStart);
   }
 
-  if (oss != ss)
+  // Última parte del texto
+  parts.push_back(text.substring(currentWordStart).c_str());
+
+  // Imprimir líneas con el máximo de caracteres permitidos
+  String output = "";
+  int currentLen = 0;
+
+  for (const auto &word : parts)
   {
-    oss = ss;
-    drawSeconds(centerX, centerY + 60, ss); // Dibuja los segundos
+    if (currentLen + word.length() > maxLineSize)
+    {
+      // Imprimir la línea actual centrada
+      tft.setCursor((tft.width() - tft.textWidth(output)) / 2, yPos);
+      tft.println(output);
+      yPos += 20; // Espacio entre líneas
+      output = word.c_str();
+      currentLen = word.length();
+    }
+    else
+    {
+      output += " " + String(word.c_str());
+      currentLen += word.length() + 1;
+    }
   }
+
+  // Imprimir última línea si hay contenido
+  if (output.length() > 0)
+  {
+    tft.setCursor((tft.width() - tft.textWidth(output)) / 2, yPos);
+    tft.println(output);
+  }
+}
+
+void DisplayManager::drawSongDetails(SongDetails *currentSong, bool fullRefresh, bool likeRefresh)
+{
+  this->drawed = false;
+  tft.fillScreen(TFT_BLACK); // Limpiar la pantalla
+  yield();
+
+  // Tamaño máximo de la imagen (ajustar según preferencia)
+  int maxImgWidth = tft.width() / 2;   // Ancho máximo de la imagen (50% de la pantalla)
+  int maxImgHeight = tft.height() / 2; // Alto máximo de la imagen (50% de la pantalla)
+
+  // Posición de la imagen (centrada)
+  int imgX = (tft.width() - maxImgWidth) / 2; // Centrar en el eje X
+  int imgY = 20;                              // Margen superior
+
+  // Verificar si la imagen existe
+  if (SPIFFS.exists("/albumArt.jpg"))
+  {
+    // Obtener el tamaño original de la imagen
+    File imgFile = SPIFFS.open("/albumArt.jpg", "r");
+    uint16_t imgOrigWidth;
+    uint16_t imgOrigHeight;
+    if (imgFile)
+    {
+      TJpgDec.getFsJpgSize(&imgOrigWidth, &imgOrigHeight, imgFile);
+      imgFile.close();
+
+      // Calcular el aspect ratio
+      float aspectRatio = (float)imgOrigWidth / (float)imgOrigHeight;
+
+      // Calcular el tamaño de la imagen manteniendo el aspect ratio
+      int imgWidth = maxImgWidth;
+      int imgHeight = imgWidth / aspectRatio;
+
+      // Si la altura calculada excede el máximo permitido, ajustar
+      if (imgHeight > maxImgHeight)
+      {
+        imgHeight = maxImgHeight;
+        imgWidth = imgHeight * aspectRatio;
+      }
+
+      // Ajustar la posición para mantener la imagen centrada
+      imgX = (tft.width() - imgWidth) / 2;
+      imgY = 20;              // Margen superior
+      TJpgDec.setJpgScale(1); // Escala de imagen 1:1
+      TJpgDec.setSwapBytes(true);
+      // TJpgDec.setJpgScale(4);
+      TJpgDec.drawFsJpg(imgX, 0, "/Angry.jpg");
+    }
+  }
+  else
+  {
+    // Dibujar una imagen por defecto si no se encuentra la original
+    TJpgDec.drawFsJpg(imgX, 0, "/Angry.jpg");
+  }
+
+  // Mostrar el título y la banda en formato [Título] - [Artista]
+  tft.setTextDatum(TC_DATUM); // Centrar texto horizontalmente
+  tft.setTextWrap(true);      // Habilitar text wrapping
+
+  // Título de la canción
+  int textY = imgY + maxImgHeight + 20; // Posición debajo de la imagen
+  tft.setCursor(10, textY);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextSize(1);           // Fuente más pequeña
+  tft.print(currentSong->song); // Título
+
+  // Artista
+  textY += 15; // Espacio entre el título y el artista
+  tft.setCursor(10, textY);
+  tft.setTextColor(0xBDF7, TFT_BLACK); // Gris claro
+  tft.setTextSize(1);                  // Fuente más pequeña
+  tft.print(currentSong->artist);      // Artista
+
+  // ❤️ Like (mostrar corazón si está "me gusta")
+  if (fullRefresh || likeRefresh)
+  {
+    if (currentSong->isLiked)
+    {
+      TJpgDec.setJpgScale(1);
+      TJpgDec.drawFsJpg(tft.width() - 30, imgY + maxImgHeight + 20, "/heart.jpg"); // Corazón al lado del texto
+    }
+    else
+    {
+      tft.fillRect(tft.width() - 30, imgY + maxImgHeight + 20, 21, 21, TFT_BLACK); // Borrar el corazón si no está marcado
+    }
+  }
+
+  // ⏸️ ▶️ Estado de reproducción
+  int iconSize = 20;                        // Tamaño del ícono de play/pausa
+  int iconX = (tft.width() - iconSize) / 2; // Centrar el ícono
+  int iconY = textY + 25;                   // Posición debajo del texto
+
+  if (currentSong->isPlaying)
+  {
+    // Icono de pausa (⏸️)
+    tft.fillRect(iconX, iconY, 6, iconSize, TFT_WHITE);      // Barra izquierda
+    tft.fillRect(iconX + 10, iconY, 6, iconSize, TFT_WHITE); // Barra derecha
+  }
+  else
+  {
+    // Icono de play (▶️)
+    tft.fillTriangle(iconX, iconY, iconX, iconY + iconSize, iconX + iconSize, iconY + (iconSize / 2), TFT_WHITE);
+  }
+
+  // 🔄 Dibujar barra de progreso
+  int barWidth = tft.width() - 40; // Ancho total de la barra de progreso
+  int barHeight = 4;               // Altura de la barra de progreso (más delgada)
+  int barX = 20;                   // Margen izquierdo
+  int barY = tft.height() - 20;    // Posición en la parte inferior
+
+  tft.fillRoundRect(barX, barY, barWidth, barHeight, 2, 0x7BEF); // Gris claro de fondo
+  int progressWidth = (barWidth * currentSong->progressMs) / currentSong->durationMs;
+  tft.fillRoundRect(barX, barY, progressWidth, barHeight, 2, TFT_GREEN); // Barra de progreso verde
+
+  // Mostrar tiempo transcurrido y tiempo total
+  tft.setTextDatum(BL_DATUM); // Alinear texto a la izquierda
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextSize(1);
+  tft.setCursor(barX, barY - 15);
+  tft.print(formatTime(currentSong->progressMs)); // Tiempo transcurrido
+
+  tft.setTextDatum(BR_DATUM); // Alinear texto a la derecha
+  tft.setCursor(barX + barWidth - 15, barY - 10);
+  tft.print(formatTime(currentSong->durationMs)); // Tiempo total
+}
+
+// Función para formatear el tiempo en minutos:segundos
+String DisplayManager::formatTime(int ms)
+{
+  int totalSeconds = ms / 1000;
+  int minutes = totalSeconds / 60;
+  int seconds = totalSeconds % 60;
+  return String(minutes) + ":" + (seconds < 10 ? "0" : "") + String(seconds);
+}
+
+void DisplayManager::drawNoSongPlaying()
+{
+  if (this->drawed)
+  {
+    return;
+  }
+
+  tft.fillScreen(TFT_BLACK); // Limpiar la pantalla
+  yield();
+
+  int imgX = (tft.width() - 100) / 2;  // Centrar la imagen
+  int imgY = (tft.height() - 100) / 2; // Centrar la imagen
+  TJpgDec.setJpgScale(1);
+  TJpgDec.drawFsJpg(imgX, imgY, "/Angry.jpg");
+  this->drawed = true;
 }

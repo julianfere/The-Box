@@ -5,15 +5,8 @@ Store::Store()
 {
 }
 
-Store &Store::getInstance()
-{
-  static Store instance;
-  return instance;
-}
-
 void Store::storeWifiSettings(WifiSettings &settings)
 {
-  Serial.println("GUARDANDO WIFI SETTINGS");
   preferences.begin(STORE_NAMESPACE, false);
   preferences.putString(WIFI_SSID, settings.ssid);
   preferences.putString(WIFI_PASSWORD, settings.password);
@@ -33,9 +26,15 @@ WifiSettings Store::getWifiSettings()
 
 bool Store::hasWifiSettings()
 {
-  preferences.begin(STORE_NAMESPACE, true);
   bool has = preferences.getString(WIFI_SSID, "").length() > 0;
   preferences.end();
 
   return has;
+}
+
+void Store::clear()
+{
+  preferences.begin(STORE_NAMESPACE, false);
+  preferences.clear();
+  preferences.end();
 }

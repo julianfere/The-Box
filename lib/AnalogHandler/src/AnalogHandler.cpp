@@ -38,13 +38,17 @@ bool AnalogHandler::isRight()
 
 bool AnalogHandler::isPressed()
 {
+  static bool lastState = HIGH;
+  bool buttonState = digitalRead(this->_swPin) == LOW;
   unsigned long currentTime = millis();
-  if (currentTime - _debounceTime > 50) // 50ms de debounce
+
+  if (buttonState != lastState && currentTime - _debounceTime > 50) // Detecta cambio
   {
-    bool buttonState = digitalRead(this->_swPin) == LOW;
-    if (buttonState)
+    _debounceTime = currentTime;
+    lastState = buttonState;
+
+    if (buttonState == LOW)
     {
-      _debounceTime = currentTime;
       return true;
     }
   }

@@ -19,10 +19,10 @@ class Store
 {
 public:
   Store();
-  static Store &getInstance();
   WifiSettings getWifiSettings();
   void storeWifiSettings(WifiSettings &settings);
   bool hasWifiSettings();
+  void clear();
 
 private:
   Preferences preferences;
