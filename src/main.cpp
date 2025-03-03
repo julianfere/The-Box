@@ -23,8 +23,8 @@
 #define _WEATHER "WEATHER"
 #define _DOLAR "DOLAR"
 #define _SPOTIFY "SPOTIFY"
-#define CLIENT_ID "21977de3dafb4ad69b2610d43783ec69"
-#define CLIENT_SECRET "68a061bc68b24eb88f44184f5079dd82"
+#define CLIENT_ID "CLIENT_ID"
+#define CLIENT_SECRET "CLIENT_ID"
 
 const int xPin = 33;  // the VRX attach to
 const int yPin = 32;  // the VRY attach to
