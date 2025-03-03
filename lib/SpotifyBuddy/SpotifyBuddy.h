@@ -17,6 +17,7 @@ struct SongDetails
   String artist;
   String album;
   String imageLink;
+  bool isPlaying;
   float progressMs;
   bool isLiked;
   int durationMs;
@@ -70,5 +71,6 @@ private:
   String callbackUrl;
   String urlencode(String str);
   void printSplitString(String text, int maxLineSize, int yPos);
+  String lastImgUrl;
 };
 #endif

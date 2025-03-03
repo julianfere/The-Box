@@ -188,7 +188,7 @@ void handleCallback(AsyncWebServerRequest *request)
       logger.debug("HTTP SERVER", "Code");
       if (spotifyBuddy.getUserCode(request->arg("code")))
       {
-        request->send(200, "text/html", "Spotify setup complete Auth refresh in :" + String(spotifyBuddy.getTokenExpireTime()));
+        request->send(200, "text/html", successPage);
       }
       else
       {
@@ -487,7 +487,7 @@ void onSpotify(StateMachine &machine)
     //   spotifyBuddy.refreshAuth();
     // }
 
-    if (millis() - refreshLoop > 5000)
+    if (millis() - refreshLoop > 3000)
     {
       SongDetails data = spotifyBuddy.getTrackInfo();
       refreshLoop = millis();
@@ -500,7 +500,7 @@ void onSpotify(StateMachine &machine)
       spotifyBuddy.togglePlay();
     }
 
-    if (analogHandler.isDown())
+    if (analogHandler.isRight())
     {
       spotifyBuddy.skipForward();
     }
@@ -510,7 +510,7 @@ void onSpotify(StateMachine &machine)
       spotifyBuddy.skipBack();
     }
 
-    if (analogHandler.isLeft())
+    if (analogHandler.isDown())
     {
       if (vol > 0)
       {
@@ -519,7 +519,7 @@ void onSpotify(StateMachine &machine)
       }
     }
 
-    if (analogHandler.isRight())
+    if (analogHandler.isUp())
     {
       if (vol < 100)
       {

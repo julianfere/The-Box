@@ -179,19 +179,16 @@ SongDetails SpotifyBuddy::getTrackInfo()
     imageLink = doc["item"]["album"]["images"][0]["url"].as<String>();
     song.imageLink = imageLink;
     song.isLiked = findLikedStatus(song.Id);
+    song.isPlaying = doc["is_playing"].as<bool>();
     song.progressMs = currentSongPositionMs;
     isPlaying = doc["is_playing"].as<bool>();
     Serial.println("Song: " + song.song);
-    if (SPIFFS.exists("/albumArt.jpg") == true)
+    if (SPIFFS.exists("/albumArt.jpg") && this->lastImgUrl != imageLink)
     {
       SPIFFS.remove("/albumArt.jpg");
+      this->getFile(imageLink, "/albumArt.jpg");
     }
-    bool loaded_ok = this->getFile(imageLink, "/albumArt.jpg"); // Note name preceded with "/"
-    Serial.println("Image load was: ");
-    Serial.println(loaded_ok);
-    refresh = true;
-
-    success = true;
+    this->lastImgUrl = imageLink;
   }
 
   https.end();
@@ -339,10 +336,16 @@ void SpotifyBuddy::setCallbackUrl(String url)
 
 bool SpotifyBuddy::getFile(String url, String filename)
 {
+
   if (SPIFFS.exists(filename))
   {
     Serial.println("Found " + filename);
     return true; // Archivo ya existe
+  }
+  if (this->lastImgUrl == url)
+  {
+    Serial.println("Already downloaded " + filename);
+    return true; // Archivo ya descargado
   }
 
   Serial.println("Downloading " + filename + " from " + url);
@@ -411,6 +414,5 @@ bool SpotifyBuddy::getFile(String url, String filename)
   Serial.println("[HTTP] Download complete.");
   f.close();
   http.end();
-
   return true;
 }

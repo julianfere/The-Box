@@ -302,76 +302,134 @@ void DisplayManager::printSplitString(String text, int maxLineSize, int yPos)
 
 void DisplayManager::drawSongDetails(SongDetails *currentSong, bool fullRefresh, bool likeRefresh)
 {
-  tft.fillScreen(TFT_BLACK);
+  tft.fillScreen(TFT_BLACK); // Limpiar la pantalla
   yield();
 
-  int albumArtSize = 180; // Tamaño de la carátula
-  int textStartY = 200;   // Posición base del texto
-  int textSpacing = 22;   // Espaciado entre líneas
-  int progressBarHeight = 6;
-  int progressBarY = 285; // Posición de la barra de progreso
+  // Tamaño máximo de la imagen (ajustar según preferencia)
+  int maxImgWidth = tft.width() / 2;   // Ancho máximo de la imagen (50% de la pantalla)
+  int maxImgHeight = tft.height() / 2; // Alto máximo de la imagen (50% de la pantalla)
 
-  if (fullRefresh)
+  // Posición de la imagen (centrada)
+  int imgX = (tft.width() - maxImgWidth) / 2; // Centrar en el eje X
+  int imgY = 20;                              // Margen superior
+
+  // Verificar si la imagen existe
+  if (SPIFFS.exists("/albumArt.jpg"))
   {
-    // Dibujar carátula del álbum (centrada en la parte superior)
-    if (SPIFFS.exists("/albumArt.jpg"))
+    // Obtener el tamaño original de la imagen
+    File imgFile = SPIFFS.open("/albumArt.jpg", "r");
+    uint16_t imgOrigWidth;
+    uint16_t imgOrigHeight;
+    if (imgFile)
     {
+      TJpgDec.getFsJpgSize(&imgOrigWidth, &imgOrigHeight, imgFile);
+      imgFile.close();
+
+      // Calcular el aspect ratio
+      float aspectRatio = (float)imgOrigWidth / (float)imgOrigHeight;
+
+      // Calcular el tamaño de la imagen manteniendo el aspect ratio
+      int imgWidth = maxImgWidth;
+      int imgHeight = imgWidth / aspectRatio;
+
+      // Si la altura calculada excede el máximo permitido, ajustar
+      if (imgHeight > maxImgHeight)
+      {
+        imgHeight = maxImgHeight;
+        imgWidth = imgHeight * aspectRatio;
+      }
+
+      // Ajustar la posición para mantener la imagen centrada
+      imgX = (tft.width() - imgWidth) / 2;
+      imgY = 20; // Margen superior
+
       TJpgDec.setSwapBytes(true);
-      TJpgDec.setJpgScale(2); // Ajustado para 180x180
-      TJpgDec.drawFsJpg((tft.width() - albumArtSize) / 2, 10, "/albumArt.jpg");
+      // TJpgDec.setJpgScale(4);
+      TJpgDec.drawFsJpg(imgX, 0, "/albumArt.jpg");
+    }
+  }
+  else
+  {
+    // Dibujar una imagen por defecto si no se encuentra la original
+    TJpgDec.drawFsJpg(imgX, 0, "/Angry.jpg");
+  }
+
+  // Mostrar el título y la banda en formato [Título] - [Artista]
+  tft.setTextDatum(TC_DATUM); // Centrar texto horizontalmente
+  tft.setTextWrap(true);      // Habilitar text wrapping
+
+  // Título de la canción
+  int textY = imgY + maxImgHeight + 20; // Posición debajo de la imagen
+  tft.setCursor(10, textY);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextSize(1);           // Fuente más pequeña
+  tft.print(currentSong->song); // Título
+
+  // Artista
+  textY += 15; // Espacio entre el título y el artista
+  tft.setCursor(10, textY);
+  tft.setTextColor(0xBDF7, TFT_BLACK); // Gris claro
+  tft.setTextSize(1);                  // Fuente más pequeña
+  tft.print(currentSong->artist);      // Artista
+
+  // ❤️ Like (mostrar corazón si está "me gusta")
+  if (fullRefresh || likeRefresh)
+  {
+    if (currentSong->isLiked)
+    {
+      TJpgDec.setJpgScale(1);
+      TJpgDec.drawFsJpg(tft.width() - 30, imgY + maxImgHeight + 20, "/heart.jpg"); // Corazón al lado del texto
     }
     else
     {
-      TJpgDec.setSwapBytes(false);
-      TJpgDec.setJpgScale(1);
-      TJpgDec.drawFsJpg((tft.width() - 100) / 2, 20, "/Angry.jpg");
+      tft.fillRect(tft.width() - 30, imgY + maxImgHeight + 20, 21, 21, TFT_BLACK); // Borrar el corazón si no está marcado
     }
-
-    // Configurar fuente y alineación
-    tft.setTextDatum(MC_DATUM);
-    tft.setTextWrap(false);
-    tft.setTextSize(1);
-
-    // Dibujar nombre de la canción (Blanco, más grande)
-    tft.setTextColor(TFT_WHITE);
-    tft.drawString(currentSong->song, tft.width() / 2, textStartY, 2);
-
-    // Dibujar nombre del artista (Verde suave, más pequeño)
-    tft.setTextColor(TFT_GREEN);
-    tft.drawString(currentSong->artist, tft.width() / 2, textStartY + textSpacing, 1);
-
-    // Dibujar el icono de "like" (Arriba a la derecha)
-    if (fullRefresh || likeRefresh)
-    {
-      if (currentSong->isLiked)
-      {
-        TJpgDec.setJpgScale(1);
-        TJpgDec.drawFsJpg(210, 20, "/heart.jpg");
-      }
-      else
-      {
-        tft.fillRect(210, 20, 21, 21, TFT_BLACK);
-      }
-    }
-
-    // Dibujar contenedor de la barra de progreso
-    tft.drawRoundRect(20, progressBarY, 200, progressBarHeight, 3, TFT_DARKGREY);
   }
 
-  // Borrar barra de progreso si la canción retrocedió
-  if (this->songProgress > currentSong->progressMs)
+  // ⏸️ ▶️ Estado de reproducción
+  int iconSize = 20;                        // Tamaño del ícono de play/pausa
+  int iconX = (tft.width() - iconSize) / 2; // Centrar el ícono
+  int iconY = textY + 25;                   // Posición debajo del texto
+
+  if (currentSong->isPlaying)
   {
-    tft.fillRoundRect(22, progressBarY + 2, 196, progressBarHeight - 4, 2, TFT_BLACK);
-    this->songProgress = currentSong->progressMs;
+    // Icono de pausa (⏸️)
+    tft.fillRect(iconX, iconY, 6, iconSize, TFT_WHITE);      // Barra izquierda
+    tft.fillRect(iconX + 10, iconY, 6, iconSize, TFT_WHITE); // Barra derecha
+  }
+  else
+  {
+    // Icono de play (▶️)
+    tft.fillTriangle(iconX, iconY, iconX, iconY + iconSize, iconX + iconSize, iconY + (iconSize / 2), TFT_WHITE);
   }
 
-  // Dibujar barra de progreso (Estilo Spotify)
-  int progressWidth = (200 * currentSong->progressMs) / currentSong->durationMs;
-  tft.fillRoundRect(22, progressBarY + 2, progressWidth, progressBarHeight - 4, 2, TFT_GREEN);
+  // 🔄 Dibujar barra de progreso
+  int barWidth = tft.width() - 40; // Ancho total de la barra de progreso
+  int barHeight = 4;               // Altura de la barra de progreso (más delgada)
+  int barX = 20;                   // Margen izquierdo
+  int barY = tft.height() - 20;    // Posición en la parte inferior
 
-  // Dibujar tiempo transcurrido y duración (Pequeños y grises)
-  tft.setTextColor(TFT_LIGHTGREY);
+  tft.fillRoundRect(barX, barY, barWidth, barHeight, 2, 0x7BEF); // Gris claro de fondo
+  int progressWidth = (barWidth * currentSong->progressMs) / currentSong->durationMs;
+  tft.fillRoundRect(barX, barY, progressWidth, barHeight, 2, TFT_GREEN); // Barra de progreso verde
+
+  // Mostrar tiempo transcurrido y tiempo total
+  tft.setTextDatum(BL_DATUM); // Alinear texto a la izquierda
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextSize(1);
-  tft.drawString(String((int)currentSong->progressMs / 1000) + "s", 20, progressBarY + 10, 1);
-  tft.drawString(String(currentSong->durationMs / 1000) + "s", 200, progressBarY + 10, 1);
+  tft.setCursor(barX, barY - 15);
+  tft.print(formatTime(currentSong->progressMs)); // Tiempo transcurrido
+
+  tft.setTextDatum(BR_DATUM); // Alinear texto a la derecha
+  tft.setCursor(barX + barWidth - 15, barY - 10);
+  tft.print(formatTime(currentSong->durationMs)); // Tiempo total
+}
+
+// Función para formatear el tiempo en minutos:segundos
+String DisplayManager::formatTime(int ms)
+{
+  int totalSeconds = ms / 1000;
+  int minutes = totalSeconds / 60;
+  int seconds = totalSeconds % 60;
+  return String(minutes) + ":" + (seconds < 10 ? "0" : "") + String(seconds);
 }

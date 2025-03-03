@@ -39,5 +39,6 @@ private:
   void drawSeconds(int x, int y, int ss);
   void printSplitString(String text, int maxLineSize, int yPos);
   float songProgress;
+  String formatTime(int ms);
 };
 #endif
