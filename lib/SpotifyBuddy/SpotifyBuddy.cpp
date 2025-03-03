@@ -1,34 +1,41 @@
 #include "SpotifyBuddy.h"
+#include <TFT_eSPI.h>
 
-SpotifyBuddy::SpotifyBuddy(String clientId, String clientSecret, String callbackUrl)
-    : callbackUrl(callbackUrl), clientId(clientId), clientSecret(clientSecret)
+SpotifyBuddy::SpotifyBuddy(String clientId, String clientSecret)
+    : clientId(clientId), clientSecret(clientSecret)
 {
   client = std::unique_ptr<WiFiClientSecure>(new WiFiClientSecure());
-  client->setInsecure();
+  client->setInsecure(); // Usa setCACert(spotify_cert) si tienes el certificado de Spotify
 }
 
 // Helper to execute POST/GET/PUT requests to Spotify API
 bool SpotifyBuddy::executeRequest(String url, String method, String requestBody)
 {
   https.begin(*client, url);
-  String auth = "Bearer " + accessToken;
-  https.addHeader("Authorization", auth);
+  https.addHeader("Authorization", "Bearer " + accessToken);
+  https.addHeader("Content-Type", "application/x-www-form-urlencoded");
+  https.addHeader("Content-Length", String(requestBody.length())); // Soluciona error 411
 
+  int httpResponseCode;
   if (method == "POST")
-  {
-    return https.POST(requestBody) == HTTP_CODE_OK;
-  }
+    httpResponseCode = https.POST(requestBody);
   else if (method == "PUT")
-  {
-    return https.PUT(requestBody) == HTTP_CODE_OK;
-  }
+    httpResponseCode = https.PUT(requestBody);
   else if (method == "GET")
+    httpResponseCode = https.GET();
+  else
+    return false;
+
+  Serial.println("HTTP Response Code: " + String(httpResponseCode));
+
+  if (httpResponseCode == HTTP_CODE_OK)
   {
-    return https.GET() == HTTP_CODE_OK;
+    String response = https.getString();
+    Serial.println(response);
   }
 
   https.end();
-  return false;
+  return httpResponseCode == HTTP_CODE_OK;
 }
 
 // Get user authorization code
@@ -43,110 +50,193 @@ bool SpotifyBuddy::refreshAuth()
   return requestAuth("", true);
 }
 
-// Request authentication from Spotify API
+String SpotifyBuddy::urlencode(String str)
+{
+  String encodedString = "";
+  char c;
+  char code0;
+  char code1;
+  char code2;
+  for (int i = 0; i < str.length(); i++)
+  {
+    c = str.charAt(i);
+    if (isalnum(c))
+    {
+      encodedString += c;
+    }
+    else
+    {
+      code1 = (c & 0xf) + '0';
+      if ((c & 0xf) > 9)
+      {
+        code1 = (c & 0xf) - 10 + 'A';
+      }
+      c = (c >> 4) & 0xf;
+      code0 = c + '0';
+      if (c > 9)
+      {
+        code0 = c - 10 + 'A';
+      }
+      encodedString += '%';
+      encodedString += code0;
+      encodedString += code1;
+    }
+  }
+  return encodedString;
+}
+
 bool SpotifyBuddy::requestAuth(String serverCode, bool isRefresh)
 {
+  HTTPClient https;
   String url = "https://accounts.spotify.com/api/token";
-  String auth = "Basic " + base64::encode(String(this->clientId) + ":" + String(this->clientSecret));
+  String credentials = this->clientId + ":" + this->clientSecret;
+  String auth = "Basic " + base64::encode(credentials);
+  String requestBody = isRefresh ? "grant_type=refresh_token&refresh_token=" + refreshToken
+                                 : "grant_type=authorization_code&code=" + serverCode + "&redirect_uri=" + urlencode(this->callbackUrl);
+  https.begin(url);
   https.addHeader("Authorization", auth);
   https.addHeader("Content-Type", "application/x-www-form-urlencoded");
+  https.addHeader("Content-Length", String(requestBody.length())); // Soluciona error 411
 
-  String requestBody = isRefresh ? "grant_type=refresh_token&refresh_token=" + refreshToken : "grant_type=authorization_code&code=" + serverCode + "&redirect_uri=" + String(this->callbackUrl);
+  int httpResponseCode = https.POST(requestBody);
+  Serial.println("Auth request HTTP Code: " + String(httpResponseCode));
 
-  bool success = executeRequest(url, "POST", requestBody);
-  if (success)
+  if (httpResponseCode == 200)
   {
     String response = https.getString();
-    DynamicJsonDocument doc(1024);
+    Serial.println("Response: " + response);
+    JsonDocument doc;
     deserializeJson(doc, response);
-    accessToken = String((const char *)doc["access_token"]);
-    refreshToken = String((const char *)doc["refresh_token"]);
-    tokenExpireTime = doc["expires_in"];
+    accessToken = doc["access_token"].as<String>();
+    refreshToken = doc["refresh_token"].as<String>();
+    tokenExpireTime = doc["expires_in"].as<int>();
     tokenStartTime = millis();
     accessTokenSet = true;
-    Serial.println(accessToken);
   }
+  else
+  {
+    Serial.println("Auth request failed. Response: " + https.getString());
+  }
+
   https.end();
   return accessTokenSet;
 }
 
-// Get track information
-bool SpotifyBuddy::getTrackInfo()
+bool SpotifyBuddy::findLikedStatus(String songId)
 {
+  String url = "https://api.spotify.com/v1/me/tracks/contains?ids=" + songId;
+  https.begin(*client, url);
+  String auth = "Bearer " + String(this->accessToken);
+  https.addHeader("Authorization", auth);
+  https.addHeader("Content-Type", "application/json");
+  int httpResponseCode = https.GET();
+  bool success = false;
+  // Check if the request was successful
+  if (httpResponseCode == 200)
+  {
+    String response = https.getString();
+    https.end();
+    return (response == "[ true ]");
+  }
+  else
+  {
+    Serial.print("Error toggling liked songs: ");
+    Serial.println(httpResponseCode);
+    String response = https.getString();
+    Serial.println(response);
+    https.end();
+  }
+
+  return success;
+}
+
+SongDetails SpotifyBuddy::getTrackInfo()
+{
+  Serial.println("Getting track info");
   String url = "https://api.spotify.com/v1/me/player/currently-playing";
   https.begin(*client, url);
   String auth = "Bearer " + String(accessToken);
+  bool refresh = false;
   https.addHeader("Authorization", auth);
+  String imageLink = "";
 
+  int httpResponseCode = https.GET();
+  bool success = false;
+
+  SongDetails song;
+  if (httpResponseCode == 200)
+  {
+    String response = https.getString();
+    JsonDocument doc;
+    deserializeJson(doc, response);
+
+    currentSongPositionMs = doc["progress_ms"].as<float>();
+    song.durationMs = doc["item"]["duration_ms"].as<int>();
+    song.Id = doc["item"]["id"].as<String>();
+    song.song = doc["item"]["name"].as<String>();
+    song.artist = doc["item"]["artists"][0]["name"].as<String>();
+    song.album = doc["item"]["album"]["name"].as<String>();
+    imageLink = doc["item"]["album"]["images"][0]["url"].as<String>();
+    song.imageLink = imageLink;
+    song.isLiked = findLikedStatus(song.Id);
+    song.progressMs = currentSongPositionMs;
+    isPlaying = doc["is_playing"].as<bool>();
+    Serial.println("Song: " + song.song);
+    if (SPIFFS.exists("/albumArt.jpg") == true)
+    {
+      SPIFFS.remove("/albumArt.jpg");
+    }
+    bool loaded_ok = this->getFile(imageLink, "/albumArt.jpg"); // Note name preceded with "/"
+    Serial.println("Image load was: ");
+    Serial.println(loaded_ok);
+    refresh = true;
+
+    success = true;
+  }
+
+  https.end();
+  return song;
+}
+
+bool SpotifyBuddy::toggleLiked(String songId)
+{
+  String url = "https://api.spotify.com/v1/me/tracks/contains?ids=" + songId;
+  https.begin(*client, url);
+  String auth = "Bearer " + String(accessToken);
+  https.addHeader("Authorization", auth);
+  https.addHeader("Content-Type", "application/json");
   int httpResponseCode = https.GET();
   bool success = false;
 
   if (httpResponseCode == 200)
   {
     String response = https.getString();
-    DynamicJsonDocument doc(1024);
-    deserializeJson(doc, response);
-
-    currentSongPositionMs = getValue(https, "progress_ms").toFloat();
-    currentSong.durationMs = getValue(https, "duration_ms").toInt();
-    currentSong.Id = getValue(https, "uri").substring(15);
-    currentSong.song = getValue(https, "name");
-    currentSong.artist = getValue(https, "name");
-    currentSong.album = getValue(https, "name");
-    isPlaying = getValue(https, "is_playing") == "true";
-
-    success = true;
-  }
-
-  this->drawScreen(success);
-
-  https.end();
-  return success;
-}
-
-// Get a value from the response
-String SpotifyBuddy::getValue(HTTPClient &https, String key)
-{
-  // Retrieve and parse value from the response string
-  return "";
-}
-
-// Draw screen method (can be called for full/partial refresh)
-bool SpotifyBuddy::drawScreen(bool fullRefresh, bool likeRefresh)
-{
-  int rectWidth = 120;
-  int rectHeight = 10;
-
-  if (fullRefresh)
-  {
-    if (SPIFFS.exists("/albumArt.jpg"))
+    https.end();
+    if (response == "[ true ]")
     {
-      TJpgDec.setSwapBytes(true);
-      TJpgDec.setJpgScale(4);
-      TJpgDec.drawFsJpg(26, 5, "/albumArt.jpg");
+      currentSong.isLiked = false;
+      dislikeSong(songId);
     }
     else
     {
-      TJpgDec.setSwapBytes(false);
-      TJpgDec.setJpgScale(1);
-      TJpgDec.drawFsJpg(0, 0, "/Angry.jpg");
+      currentSong.isLiked = true;
+      likeSong(songId);
     }
-    // Draw artist and song name
+    Serial.println(response);
+    success = true;
   }
-
-  if (fullRefresh || likeRefresh)
+  else
   {
-    if (currentSong.isLiked)
-    {
-      TJpgDec.setJpgScale(1);
-      TJpgDec.drawFsJpg(128 - 20, 0, "/heart.jpg");
-    }
+    Serial.print("Error toggling liked songs: ");
+    Serial.println(httpResponseCode);
+    String response = https.getString();
+    Serial.println(response);
+    https.end();
   }
 
-  return true;
+  return success;
 }
 
-// Toggle song play/pause
 bool SpotifyBuddy::togglePlay()
 {
   String url = "https://api.spotify.com/v1/me/player/" + String(isPlaying ? "pause" : "play");
@@ -163,6 +253,7 @@ bool SpotifyBuddy::togglePlay()
 // Adjust volume
 bool SpotifyBuddy::adjustVolume(int vol)
 {
+  Serial.println("Adjusting volume" + String(vol));
   String url = "https://api.spotify.com/v1/me/player/volume?volume_percent=" + String(vol);
   bool success = executeRequest(url, "PUT");
 
@@ -239,4 +330,87 @@ int SpotifyBuddy::getTokenExpireTime()
 long SpotifyBuddy::getTokenStartTime()
 {
   return tokenStartTime;
+}
+
+void SpotifyBuddy::setCallbackUrl(String url)
+{
+  callbackUrl = url;
+}
+
+bool SpotifyBuddy::getFile(String url, String filename)
+{
+  if (SPIFFS.exists(filename))
+  {
+    Serial.println("Found " + filename);
+    return true; // Archivo ya existe
+  }
+
+  Serial.println("Downloading " + filename + " from " + url);
+
+  if (WiFi.status() != WL_CONNECTED)
+  {
+    Serial.println("WiFi not connected!");
+    return false;
+  }
+
+  HTTPClient http;
+  http.begin(*client, url);
+
+  int httpCode = http.GET();
+  if (httpCode <= 0)
+  {
+    Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
+    http.end();
+    return false;
+  }
+
+  if (httpCode != HTTP_CODE_OK)
+  {
+    Serial.printf("[HTTP] Error: %d\n", httpCode);
+    http.end();
+    return false;
+  }
+
+  fs::File f = SPIFFS.open(filename, "w");
+  if (!f)
+  {
+    Serial.println("Failed to open file for writing!");
+    http.end();
+    return false;
+  }
+
+  WiFiClient *stream = http.getStreamPtr();
+  int total = http.getSize();
+  int len = total;
+  uint8_t buff[512]; // Aumentar buffer mejora rendimiento
+
+  Serial.println("[HTTP] Downloading...");
+
+  unsigned long lastMillis = millis();
+  while (http.connected() && (len > 0 || len == -1))
+  {
+    size_t size = stream->available();
+    if (size)
+    {
+      int c = stream->readBytes(buff, min(size, sizeof(buff)));
+      f.write(buff, c);
+      if (len > 0)
+        len -= c;
+      lastMillis = millis();
+    }
+
+    if (millis() - lastMillis > 10000) // Timeout de 10s para evitar cuelgues
+    {
+      Serial.println("Timeout downloading file!");
+      break;
+    }
+
+    delay(1); // Ayuda a evitar bloqueos
+  }
+
+  Serial.println("[HTTP] Download complete.");
+  f.close();
+  http.end();
+
+  return true;
 }

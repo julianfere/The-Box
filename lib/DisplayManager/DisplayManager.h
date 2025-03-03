@@ -5,6 +5,8 @@
 #include "WeatherService.h"
 #include <TFT_eSPI.h>
 #include <NTPClient.h>
+#include "SpotifyBuddy.h"
+#include <TJpg_Decoder.h>
 
 #define COLOR_BLUE tft.color565(0, 0, 255)
 #define COLOR_BLACK tft.color565(0, 0, 0)
@@ -27,6 +29,7 @@ public:
   DisplayManager();
   static DisplayManager &getInstance();
   void drawClockPage(NTPClient &timeClient);
+  void drawSongDetails(SongDetails *currentSong, bool fullRefresh = false, bool likeRefresh = false);
 
 private:
   TFT_eSPI tft;
@@ -34,5 +37,7 @@ private:
   void drawClockFace(int x, int y);
   void drawTime(int x, int y, int hh, int mm);
   void drawSeconds(int x, int y, int ss);
+  void printSplitString(String text, int maxLineSize, int yPos);
+  float songProgress;
 };
 #endif

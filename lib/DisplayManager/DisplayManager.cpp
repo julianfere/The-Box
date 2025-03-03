@@ -1,4 +1,6 @@
 #include <DisplayManager.h>
+#include <vector>
+#include <string>
 
 DisplayManager *DisplayManager::instance = nullptr;
 
@@ -250,4 +252,126 @@ void DisplayManager::drawClockPage(NTPClient &timeClient)
       drawSeconds(centerX, centerY + 60, ss); // Solo redibuja los segundos
     }
   }
+}
+
+void DisplayManager::printSplitString(String text, int maxLineSize, int yPos)
+{
+  std::vector<std::string> parts;
+  int currentWordStart = 0;
+  int spaceIndex = text.indexOf(" ");
+
+  while (spaceIndex != -1)
+  {
+    parts.push_back(text.substring(currentWordStart, spaceIndex).c_str());
+    currentWordStart = spaceIndex + 1;
+    spaceIndex = text.indexOf(" ", currentWordStart);
+  }
+
+  // Última parte del texto
+  parts.push_back(text.substring(currentWordStart).c_str());
+
+  // Imprimir líneas con el máximo de caracteres permitidos
+  String output = "";
+  int currentLen = 0;
+
+  for (const auto &word : parts)
+  {
+    if (currentLen + word.length() > maxLineSize)
+    {
+      // Imprimir la línea actual centrada
+      tft.setCursor((tft.width() - tft.textWidth(output)) / 2, yPos);
+      tft.println(output);
+      yPos += 20; // Espacio entre líneas
+      output = word.c_str();
+      currentLen = word.length();
+    }
+    else
+    {
+      output += " " + String(word.c_str());
+      currentLen += word.length() + 1;
+    }
+  }
+
+  // Imprimir última línea si hay contenido
+  if (output.length() > 0)
+  {
+    tft.setCursor((tft.width() - tft.textWidth(output)) / 2, yPos);
+    tft.println(output);
+  }
+}
+
+void DisplayManager::drawSongDetails(SongDetails *currentSong, bool fullRefresh, bool likeRefresh)
+{
+  tft.fillScreen(TFT_BLACK);
+  yield();
+
+  int albumArtSize = 180; // Tamaño de la carátula
+  int textStartY = 200;   // Posición base del texto
+  int textSpacing = 22;   // Espaciado entre líneas
+  int progressBarHeight = 6;
+  int progressBarY = 285; // Posición de la barra de progreso
+
+  if (fullRefresh)
+  {
+    // Dibujar carátula del álbum (centrada en la parte superior)
+    if (SPIFFS.exists("/albumArt.jpg"))
+    {
+      TJpgDec.setSwapBytes(true);
+      TJpgDec.setJpgScale(2); // Ajustado para 180x180
+      TJpgDec.drawFsJpg((tft.width() - albumArtSize) / 2, 10, "/albumArt.jpg");
+    }
+    else
+    {
+      TJpgDec.setSwapBytes(false);
+      TJpgDec.setJpgScale(1);
+      TJpgDec.drawFsJpg((tft.width() - 100) / 2, 20, "/Angry.jpg");
+    }
+
+    // Configurar fuente y alineación
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextWrap(false);
+    tft.setTextSize(1);
+
+    // Dibujar nombre de la canción (Blanco, más grande)
+    tft.setTextColor(TFT_WHITE);
+    tft.drawString(currentSong->song, tft.width() / 2, textStartY, 2);
+
+    // Dibujar nombre del artista (Verde suave, más pequeño)
+    tft.setTextColor(TFT_GREEN);
+    tft.drawString(currentSong->artist, tft.width() / 2, textStartY + textSpacing, 1);
+
+    // Dibujar el icono de "like" (Arriba a la derecha)
+    if (fullRefresh || likeRefresh)
+    {
+      if (currentSong->isLiked)
+      {
+        TJpgDec.setJpgScale(1);
+        TJpgDec.drawFsJpg(210, 20, "/heart.jpg");
+      }
+      else
+      {
+        tft.fillRect(210, 20, 21, 21, TFT_BLACK);
+      }
+    }
+
+    // Dibujar contenedor de la barra de progreso
+    tft.drawRoundRect(20, progressBarY, 200, progressBarHeight, 3, TFT_DARKGREY);
+  }
+
+  // Borrar barra de progreso si la canción retrocedió
+  if (this->songProgress > currentSong->progressMs)
+  {
+    tft.fillRoundRect(22, progressBarY + 2, 196, progressBarHeight - 4, 2, TFT_BLACK);
+    this->songProgress = currentSong->progressMs;
+  }
+
+  // Dibujar barra de progreso (Estilo Spotify)
+  int progressWidth = (200 * currentSong->progressMs) / currentSong->durationMs;
+  tft.fillRoundRect(22, progressBarY + 2, progressWidth, progressBarHeight - 4, 2, TFT_GREEN);
+
+  // Dibujar tiempo transcurrido y duración (Pequeños y grises)
+  tft.setTextColor(TFT_LIGHTGREY);
+  tft.setTextSize(1);
+  tft.drawString(String((int)currentSong->progressMs / 1000) + "s", 20, progressBarY + 10, 1);
+  tft.drawString(String(currentSong->durationMs / 1000) + "s", 200, progressBarY + 10, 1);
 }

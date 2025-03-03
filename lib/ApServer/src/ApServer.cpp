@@ -44,6 +44,7 @@ String ApServer::getPassword()
 
 void ApServer::setupAp()
 {
+  WiFi.mode(WIFI_AP);
   WiFi.softAP(AP_SSID, AP_PASSWORD);
   IPAddress IP = WiFi.softAPIP();
 }

@@ -11,6 +11,7 @@
 #include "DisplayManager.h"
 #include "index.h"
 #include "SpotifyBuddy.h"
+#include "Logger.h"
 //==============================================================================
 
 #define _INIT "INIT"
@@ -24,9 +25,8 @@
 #define _SPOTIFY "SPOTIFY"
 #define CLIENT_ID "21977de3dafb4ad69b2610d43783ec69"
 #define CLIENT_SECRET "68a061bc68b24eb88f44184f5079dd82"
-#define REDIRECT_URI "http://192.168.4.1/callback"
 
-const int xPin = 27;  // the VRX attach to
+const int xPin = 33;  // the VRX attach to
 const int yPin = 32;  // the VRY attach to
 const int swPin = 25; // the SW attach to
 
@@ -41,11 +41,13 @@ WiFiUDP ntpUDP;
 DollarService dollarService = DollarService();
 NTPClient timeClient(ntpUDP, "pool.ntp.org", -3 * 3600, 60000);
 WeatherInfo WEATHER_INFO;
+SongDetails SONG_INFO;
 DollarInfo DOLLAR_INFO;
 DisplayManager displayManager = DisplayManager();
-SpotifyBuddy spotifyBuddy(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
-QueueHandle_t WIFI_STATUS_QUEUE = xQueueCreate(1, sizeof(bool));
+SpotifyBuddy spotifyBuddy(CLIENT_ID, CLIENT_SECRET);
 AsyncWebServer httpServer(8080);
+Logger logger = Logger();
+
 bool serverOn = true;
 
 //==============================================================================
@@ -90,30 +92,22 @@ enum StateTransitions : int
 
 void onEnterInit(StateMachine &machine)
 {
-  Serial.println("=========================================================================");
-  Serial.println("Iniciando...");
-  Serial.println("=========================================================================");
-
+  logger.info("onEnterInit", "Iniciando...");
   displayManager.drawInitPage();
 
-  if (store.hasWifiSettings())
+  if (true)
   {
-    Serial.println("store tiene wifi settings");
     machine.changeState(StateTransitions::WIFI_CONNECT);
   }
   else
   {
-    Serial.println("store NO tiene wifi settings");
-
     machine.changeState(StateTransitions::WIFI_DISCOVER);
   }
 }
 
 void onEnterWaiting(StateMachine &machine)
 {
-  Serial.println("=========================================================================");
-  Serial.println("Discovery...");
-  Serial.println("=========================================================================");
+  logger.info("onEnterWaiting", "Esperando...");
   displayManager.drawWifiDiscoveryPage();
 }
 
@@ -134,9 +128,7 @@ void onExitWaiting(StateMachine &machine)
 
 void onEnterConnecting(StateMachine &machine)
 {
-  Serial.println("=========================================================================");
-  Serial.println("Connecting...");
-  Serial.println("=========================================================================");
+  logger.info("onEnterConnecting", "Conectando...");
   tft.setTextColor(TFT_YELLOW, TFT_BLACK);
   tft.setTextSize(2);
   tft.setCursor(10, 10);
@@ -157,69 +149,55 @@ void onEnterConnecting(StateMachine &machine)
     ssid = apServer.getSsid();
     password = apServer.getPassword();
   }
+  WiFi.mode(WIFI_STA);
 
-  WiFi.begin(ssid.c_str(), password.c_str());
-}
-
-void onStateConnecting(StateMachine &machine)
-{
-  unsigned long startTime = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - startTime < 10000)
-  {
-    Serial.printf("Conectando, tiempo restante: %d\n", 10 - (millis() - startTime) / 1000);
-    yield();    // Permite que el servidor HTTP siga funcionando
-    delay(100); // Pequeño delay para no saturar el CPU
-  }
-
-  if (WiFi.status() == WL_CONNECTED)
-  {
-    WifiSettings settings = WifiSettings{apServer.getSsid(), apServer.getPassword()};
-    store.storeWifiSettings(settings);
-    delay(100); // Pequeño delay para no saturar el CPU
-    machine.changeState(StateTransitions::MENU);
-  }
-  else
-  {
-    machine.changeState(StateTransitions::WIFI_DISCOVER);
-  }
+  WiFi.begin("FereRouter 2.4Ghz", "0042070239");
 }
 
 void handleRoot(AsyncWebServerRequest *request)
 {
-  Serial.println("handling root");
+  logger.debug("HTTP SERVER", "Handling root");
 
   String page = String(mainPage);
 
-  // Reemplazar %client_id% con CLIENT_ID
   page.replace("%client_id%", CLIENT_ID);
 
-  // Reemplazar %redirect_uri% con REDIRECT_URI
-  page.replace("%redirect_uri%", REDIRECT_URI);
+  String localIp = WiFi.localIP().toString();
+
+  page.replace("%redirect_uri%", "http://" + localIp + ":8080/callback");
 
   request->send(200, "text/html", page);
 }
 
 void handleCallback(AsyncWebServerRequest *request)
 {
+  logger.debug("HTTP SERVER", "Handling callback");
   if (!spotifyBuddy.isAccessTokenSet())
   {
     if (request->arg("code") == "")
-    { // Parameter not found
-      char page[500];
-      sprintf(page, errorPage, CLIENT_ID, REDIRECT_URI);
-      request->send(200, "text/html", String(page)); // Send web page
+    {
+      logger.debug("HTTP SERVER", "Code not found");
+      String page = String(errorPage);
+      page.replace("%client_id%", CLIENT_ID);
+      String localIp = WiFi.localIP().toString();
+      page.replace("%redirect_uri%", "http://" + localIp + ":8080/callback");
+      request->send(200, "text/html", String(page));
     }
     else
-    { // Parameter found
+    {
+      logger.debug("HTTP SERVER", "Code");
       if (spotifyBuddy.getUserCode(request->arg("code")))
       {
         request->send(200, "text/html", "Spotify setup complete Auth refresh in :" + String(spotifyBuddy.getTokenExpireTime()));
       }
       else
       {
-        char page[500];
-        sprintf(page, errorPage, CLIENT_ID, REDIRECT_URI);
-        request->send(200, "text/html", String(page)); // Send web page
+        logger.error("HTTP SERVER", "Error getting user code");
+        String page = String(errorPage);
+        page.replace("%client_id%", CLIENT_ID);
+        String localIp = WiFi.localIP().toString();
+        page.replace("%redirect_uri%", "http://" + localIp + "/callback");
+        request->send(200, "text/html", String(page));
       }
     }
   }
@@ -229,13 +207,56 @@ void handleCallback(AsyncWebServerRequest *request)
   }
 }
 
+void onStateConnecting(StateMachine &machine)
+{
+  unsigned long startTime = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - startTime < 10000)
+  {
+    logger.debug("CONNECTING", "Conectando, tiempo restante: %d\n" + 10 - (millis() - startTime) / 1000);
+    yield();    // Permite que el servidor HTTP siga funcionando
+    delay(100); // Pequeño delay para no saturar el CPU
+  }
+
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    WifiSettings settings = WifiSettings{apServer.getSsid(), apServer.getPassword()};
+    store.storeWifiSettings(settings);
+    delay(100); // Pequeño delay para no saturar el CPU
+    logger.debug("CALLBACK", "http://" + WiFi.localIP().toString() + ":8080/callback");
+    spotifyBuddy.setCallbackUrl("http://" + WiFi.localIP().toString() + ":8080/callback");
+
+    // Iniciar servidor http
+
+    logger.info("HTTP SERVER", "Starting server");
+    httpServer.on("/", HTTP_GET, handleRoot);
+    httpServer.on("/callback", HTTP_GET, handleCallback);
+    httpServer.on("/callback", HTTP_POST, handleCallback);
+    httpServer.begin();
+    serverOn = true;
+    logger.info("HTTP SERVER", "Server started");
+    // ---
+
+    machine.changeState(StateTransitions::MENU);
+  }
+  else
+  {
+    machine.changeState(StateTransitions::WIFI_DISCOVER);
+  }
+}
+
 void onEnterConnected(StateMachine &machine)
 {
   displayManager.drawMenu(numOptions, selectedOption, menuOptions);
 }
 
+long debounce = 0;
+
 void onMenu(StateMachine &machine)
 {
+  if (millis() - debounce < 100)
+  {
+    return;
+  }
   if (analogHandler.isDown())
   {
     if (newOption == numOptions - 1)
@@ -267,7 +288,7 @@ void onMenu(StateMachine &machine)
 
   if (analogHandler.isPressed())
   {
-    Serial.printf("Selected option: %d\n", selectedOption);
+    logger.info("onMenu", "Option selected: " + String(selectedOption));
     switch (selectedOption)
     {
     case 0:
@@ -286,11 +307,12 @@ void onMenu(StateMachine &machine)
       machine.changeState(StateTransitions::SPOTIFY);
       break;
     default:
-      Serial.println("Invalid option");
+      logger.error("onMenu", "Invalid option");
       break;
     }
   }
-  delay(100);
+
+  debounce = millis();
 }
 
 void onExitMenu(StateMachine &machine)
@@ -301,9 +323,7 @@ void onExitMenu(StateMachine &machine)
 
 void onEnterDolar(StateMachine &machine)
 {
-  Serial.println("=========================================================================");
-  Serial.println("Dolar...");
-  Serial.println("=========================================================================");
+  logger.info("onEnterDolar", "Dolar...");
   DOLLAR_INFO = dollarService.getCurrent();
   displayManager.drawDolarPage(DOLLAR_INFO);
 }
@@ -318,9 +338,7 @@ void onDolar(StateMachine &machine)
 
 void onEnterWeather(StateMachine &machine)
 {
-  Serial.println("=========================================================================");
-  Serial.println("Clima...");
-  Serial.println("=========================================================================");
+  logger.info("onEnterWeather", "Clima...");
   WEATHER_INFO = weatherService.getCurrent();
   displayManager.drawWeatherPage(WEATHER_INFO);
 }
@@ -335,9 +353,7 @@ void onWeather(StateMachine &machine)
 
 void onEnterClock(StateMachine &machine)
 {
-  Serial.println("=========================================================================");
-  Serial.println("Reloj...");
-  Serial.println("=========================================================================");
+  logger.info("onEnterClock", "Reloj...");
   tft.fillScreen(TFT_BLACK);
   yield();
 }
@@ -353,9 +369,7 @@ void onClock(StateMachine &machine)
 
 void onEnterScreenSaver(StateMachine &machine)
 {
-  Serial.println("=========================================================================");
-  Serial.println("Salva Pantallas...");
-  Serial.println("=========================================================================");
+  logger.info("onEnterScreenSaver", "Salva Pantallas...");
 }
 
 #define TEXT_HEIGHT 8    // Height of text to be printed and scrolled
@@ -445,15 +459,14 @@ int vol = 0;
 
 void onEnterSpotify(StateMachine &machine)
 {
-  Serial.println("=========================================================================");
-  Serial.println("Spotify...");
-  Serial.println("=========================================================================");
+  logger.info("onEnterSpotify", "Spotify...");
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_WHITE);
   tft.setTextSize(2);
   tft.setCursor(10, 10);
-  tft.println("Algun dia");
   vol = 100;
+  delay(100);
+  tft.fillScreen(TFT_BLACK);
 }
 
 long refreshLoop;
@@ -468,16 +481,18 @@ void onSpotify(StateMachine &machine)
       serverOn = false;
     }
 
-    if (millis() - spotifyBuddy.getTokenStartTime() / 1000 > spotifyBuddy.getTokenExpireTime())
-    {
+    // if (millis() - spotifyBuddy.getTokenStartTime() / 1000 > spotifyBuddy.getTokenExpireTime())
+    // {
 
-      spotifyBuddy.refreshAuth();
-    }
+    //   spotifyBuddy.refreshAuth();
+    // }
 
     if (millis() - refreshLoop > 5000)
     {
-      spotifyBuddy.getTrackInfo();
+      SongDetails data = spotifyBuddy.getTrackInfo();
       refreshLoop = millis();
+
+      displayManager.drawSongDetails(&data, true, true);
     }
 
     if (analogHandler.isPressed())
@@ -500,7 +515,7 @@ void onSpotify(StateMachine &machine)
       if (vol > 0)
       {
         vol -= 10;
-        spotifyBuddy.adjustVolume(-10);
+        spotifyBuddy.adjustVolume(vol);
       }
     }
 
@@ -509,14 +524,19 @@ void onSpotify(StateMachine &machine)
       if (vol < 100)
       {
         vol += 10;
-        spotifyBuddy.adjustVolume(10);
+        spotifyBuddy.adjustVolume(vol);
       }
     }
 
-    if (analogHandler.isDoublePressed())
-    {
-      machine.changeState(StateTransitions::MENU);
-    }
+    // if (analogHandler.isDoublePressed())
+    // {
+    //   machine.changeState(StateTransitions::MENU);
+    // }
+  }
+  else
+  {
+    logger.error("onSpotify", "Access token not set");
+    machine.changeState(StateTransitions::MENU);
   }
 }
 
@@ -559,26 +579,19 @@ void setup()
   displayManager.init();
   apServer.setup();
   delay(500);
-  Serial.println("Starting HTTP server");
-  httpServer.on("/", HTTP_GET, handleRoot);
-  httpServer.on("/callback", handleCallback);
-  httpServer.begin();
-  Serial.println("HTTP server started");
-  stateMachine.begin(_INIT);
   analogHandler.setup();
-
-  Serial.println(WiFi.localIP());
+  logger.info("SETUP", "Local IP: " + WiFi.localIP().toString());
 
   TJpgDec.setJpgScale(4);
 
-  // The byte order can be swapped (set true for TFT_eSPI)
-  TJpgDec.setSwapBytes(true);
+  SPIFFS.begin();
 
-  // The decoder must be given the exact name of the rendering function above
   TJpgDec.setCallback(tft_output);
+  stateMachine.begin(_INIT);
 }
 
 void loop()
 {
   stateMachine.update();
+  yield();
 }

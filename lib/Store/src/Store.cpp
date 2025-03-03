@@ -26,12 +26,6 @@ WifiSettings Store::getWifiSettings()
 
 bool Store::hasWifiSettings()
 {
-  Serial.println("ENTRE AL HAS WIFI SETTINGS");
-  preferences.begin(STORE_NAMESPACE, true);
-  Serial.println("=============================================");
-  Serial.println("Wifi ssid:" + preferences.getString(WIFI_SSID, "no ta"));
-  Serial.println("=============================================");
-
   bool has = preferences.getString(WIFI_SSID, "").length() > 0;
   preferences.end();
 
