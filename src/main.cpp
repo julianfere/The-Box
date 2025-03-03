@@ -491,8 +491,14 @@ void onSpotify(StateMachine &machine)
     {
       SongDetails data = spotifyBuddy.getTrackInfo();
       refreshLoop = millis();
-
-      displayManager.drawSongDetails(&data, true, true);
+      if (data.song == "")
+      {
+        displayManager.drawNoSongPlaying();
+      }
+      else
+      {
+        displayManager.drawSongDetails(&data, true, true);
+      }
     }
 
     if (analogHandler.isPressed())

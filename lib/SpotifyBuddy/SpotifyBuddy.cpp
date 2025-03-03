@@ -183,12 +183,12 @@ SongDetails SpotifyBuddy::getTrackInfo()
     song.progressMs = currentSongPositionMs;
     isPlaying = doc["is_playing"].as<bool>();
     Serial.println("Song: " + song.song);
-    if (SPIFFS.exists("/albumArt.jpg") && this->lastImgUrl != imageLink)
-    {
-      SPIFFS.remove("/albumArt.jpg");
-      this->getFile(imageLink, "/albumArt.jpg");
-    }
-    this->lastImgUrl = imageLink;
+    //   if (SPIFFS.exists("/albumArt.jpg") && this->lastImgUrl != imageLink)
+    //   {
+    //     SPIFFS.remove("/albumArt.jpg");
+    //     this->getFile(imageLink, "/albumArt.jpg");
+    //   }
+    //   this->lastImgUrl = imageLink;
   }
 
   https.end();

@@ -30,6 +30,7 @@ public:
   static DisplayManager &getInstance();
   void drawClockPage(NTPClient &timeClient);
   void drawSongDetails(SongDetails *currentSong, bool fullRefresh = false, bool likeRefresh = false);
+  void drawNoSongPlaying();
 
 private:
   TFT_eSPI tft;
@@ -40,5 +41,6 @@ private:
   void printSplitString(String text, int maxLineSize, int yPos);
   float songProgress;
   String formatTime(int ms);
+  bool drawed = false;
 };
 #endif

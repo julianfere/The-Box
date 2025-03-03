@@ -302,6 +302,7 @@ void DisplayManager::printSplitString(String text, int maxLineSize, int yPos)
 
 void DisplayManager::drawSongDetails(SongDetails *currentSong, bool fullRefresh, bool likeRefresh)
 {
+  this->drawed = false;
   tft.fillScreen(TFT_BLACK); // Limpiar la pantalla
   yield();
 
@@ -341,11 +342,11 @@ void DisplayManager::drawSongDetails(SongDetails *currentSong, bool fullRefresh,
 
       // Ajustar la posición para mantener la imagen centrada
       imgX = (tft.width() - imgWidth) / 2;
-      imgY = 20; // Margen superior
-
+      imgY = 20;              // Margen superior
+      TJpgDec.setJpgScale(1); // Escala de imagen 1:1
       TJpgDec.setSwapBytes(true);
       // TJpgDec.setJpgScale(4);
-      TJpgDec.drawFsJpg(imgX, 0, "/albumArt.jpg");
+      TJpgDec.drawFsJpg(imgX, 0, "/Angry.jpg");
     }
   }
   else
@@ -432,4 +433,21 @@ String DisplayManager::formatTime(int ms)
   int minutes = totalSeconds / 60;
   int seconds = totalSeconds % 60;
   return String(minutes) + ":" + (seconds < 10 ? "0" : "") + String(seconds);
+}
+
+void DisplayManager::drawNoSongPlaying()
+{
+  if (this->drawed)
+  {
+    return;
+  }
+
+  tft.fillScreen(TFT_BLACK); // Limpiar la pantalla
+  yield();
+
+  int imgX = (tft.width() - 100) / 2;  // Centrar la imagen
+  int imgY = (tft.height() - 100) / 2; // Centrar la imagen
+  TJpgDec.setJpgScale(1);
+  TJpgDec.drawFsJpg(imgX, imgY, "/Angry.jpg");
+  this->drawed = true;
 }
