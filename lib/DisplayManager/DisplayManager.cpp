@@ -229,6 +229,15 @@ void DisplayManager::drawClockPage(NTPClient &timeClient)
   if (currentMillis - lastUpdate >= 1000)
   {
     lastUpdate = currentMillis;
+    if (WiFi.status() != WL_CONNECTED)
+    {
+      tft.fillScreen(TFT_BLACK);
+      tft.setTextColor(TFT_RED);
+      tft.setTextSize(2);
+      tft.setCursor(20, 80);
+      tft.println("Sin conexión WiFi");
+      return;
+    }
     timeClient.update(); // Sincroniza la hora NTP
 
     int hh = timeClient.getHours();
